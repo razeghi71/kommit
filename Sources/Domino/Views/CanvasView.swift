@@ -119,6 +119,36 @@ struct CanvasView: View {
                         )
                     }
 
+                    // Alignment guide lines + target node highlights
+                    ForEach(Array(viewModel.activeGuides.enumerated()), id: \.offset) { _, guide in
+                        // Guide line
+                        switch guide.axis {
+                        case .horizontal:
+                            Path { path in
+                                path.move(to: CGPoint(x: -50000, y: guide.position))
+                                path.addLine(to: CGPoint(x: 50000, y: guide.position))
+                            }
+                            .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                            .allowsHitTesting(false)
+                        case .vertical:
+                            Path { path in
+                                path.move(to: CGPoint(x: guide.position, y: -50000))
+                                path.addLine(to: CGPoint(x: guide.position, y: 50000))
+                            }
+                            .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                            .allowsHitTesting(false)
+                        }
+
+                        // Highlight on the reference node
+                        let targetPos = viewModel.effectivePosition(guide.targetNodeID)
+                        let targetSize = viewModel.nodeSizes[guide.targetNodeID] ?? NodeDefaults.size
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.accentColor.opacity(0.5), lineWidth: 2)
+                            .frame(width: targetSize.width + 4, height: targetSize.height + 4)
+                            .position(targetPos)
+                            .allowsHitTesting(false)
+                    }
+
                     // Nodes layer
                     ForEach(viewModel.sortedNodes) { node in
                         NodeView(node: node, viewModel: viewModel)
