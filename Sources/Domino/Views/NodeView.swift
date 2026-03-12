@@ -36,6 +36,21 @@ struct NodeView: View {
     private let minWidth: CGFloat = 100
     private let cornerRadius: CGFloat = 8
 
+    private var borderColor: Color {
+        nodeColor ?? .primary
+    }
+
+    private var borderStroke: Color {
+        highlighted ? borderColor : borderColor.opacity(0.2)
+    }
+
+    private var fillColor: Color {
+        if highlighted, let c = nodeColor {
+            return c.opacity(0.12)
+        }
+        return (nodeColor ?? .white).opacity(0.08)
+    }
+
     private var nodeSize: CGSize {
         viewModel.nodeSizes[node.id] ?? NodeDefaults.size
     }
@@ -194,21 +209,18 @@ struct NodeView: View {
             } else {
                 Text(node.text.isEmpty ? " " : node.text)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(nodeColor ?? (highlighted ? Color.accentColor : .primary))
+                    .foregroundStyle(borderColor)
                     .frame(minWidth: minWidth)
                     .fixedSize()
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill((nodeColor ?? (highlighted ? Color.accentColor : .white)).opacity(highlighted ? 0.12 : 0.08))
+                            .fill(fillColor)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(
-                                (nodeColor ?? (highlighted ? Color.accentColor : .primary)).opacity(highlighted ? 0.6 : 0.2),
-                                lineWidth: nodeColor != nil ? 1.5 : 1
-                            )
+                            .stroke(borderStroke, lineWidth: highlighted ? 1.5 : 1)
                     )
                     .onTapGesture(count: 1) {
                         if NSEvent.modifierFlags.contains(.shift) {

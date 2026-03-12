@@ -50,16 +50,6 @@ struct CanvasView: View {
                                 selectionEnd = nil
                             }
                     )
-                    .gesture(
-                        MagnifyGesture()
-                            .onChanged { value in
-                                gestureScale = value.magnification
-                            }
-                            .onEnded { value in
-                                scale = clampScale(scale * value.magnification)
-                                gestureScale = 1.0
-                            }
-                    )
                     .onTapGesture(count: 2) { location in
                         // Convert screen location to canvas coordinates
                         let canvasPoint = screenPointToCanvas(
@@ -145,6 +135,16 @@ struct CanvasView: View {
                     .allowsHitTesting(false)
             }
         }
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    gestureScale = value.magnification
+                }
+                .onEnded { value in
+                    scale = clampScale(scale * value.magnification)
+                    gestureScale = 1.0
+                }
+        )
         .clipped()
         .onChange(of: viewModel.fileLoadID) {
             centerOnNodes(viewportSize: NSApplication.shared.windows.first?.frame.size ?? CGSize(width: 1200, height: 800))
