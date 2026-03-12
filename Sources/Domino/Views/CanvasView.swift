@@ -164,6 +164,12 @@ struct CanvasView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
             }
+            .onAppear {
+                viewModel.canvasScale = currentScale
+            }
+            .onChange(of: currentScale) { _, newScale in
+                viewModel.canvasScale = newScale
+            }
         }
         .simultaneousGesture(
             MagnifyGesture()

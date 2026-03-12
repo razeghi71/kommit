@@ -41,6 +41,7 @@ final class DominoViewModel: ObservableObject {
     @Published var currentFileURL: URL?
     @Published var fileLoadID: UUID = UUID()
     @Published var activeGuides: [AlignmentGuide] = []
+    @Published var canvasScale: CGFloat = 1.0
 
     private var undoStack: [[UUID: DominoNode]] = []
     private var redoStack: [[UUID: DominoNode]] = []
@@ -372,124 +373,273 @@ final class DominoViewModel: ObservableObject {
 
     // MARK: - Alignment / Snapping
 
-    /// Find the closest node in each of 4 directions from a center point, excluding given IDs.
-    private func closestNeighbors(from center: CGPoint, excluding: Set<UUID>) -> [UUID] {
-        var closest: [DragDirection: (id: UUID, dist: CGFloat)] = [:]
-
-        for (id, _) in nodes where !excluding.contains(id) {
-            let pos = effectivePosition(id)
-            let dx = pos.x - center.x
-            let dy = pos.y - center.y
-            let dist = sqrt(dx * dx + dy * dy)
-
-            // Determine which side this node is on
-            let direction: DragDirection
-            if abs(dx) > abs(dy) {
-                direction = dx > 0 ? .right : .left
-            } else {
-                direction = dy > 0 ? .bottom : .top
-            }
-
-            if closest[direction] == nil || dist < closest[direction]!.dist {
-                closest[direction] = (id, dist)
-            }
-        }
-
-        return closest.values.map(\.id)
+    private struct SnapCandidate {
+        let id: UUID
+        let bounds: CGRect
+        let center: CGPoint
     }
 
-    /// Check alignment between dragged rect and a single target, returning best snap deltas.
-    private func checkAlignment(
-        draggedLeft: CGFloat, draggedRight: CGFloat, draggedCenterX: CGFloat,
-        draggedTop: CGFloat, draggedBottom: CGFloat, draggedCenterY: CGFloat,
-        targetID: UUID, threshold: CGFloat
-    ) -> (snapX: (delta: CGFloat, guide: AlignmentGuide)?, snapY: (delta: CGFloat, guide: AlignmentGuide)?) {
-        let targetPos = effectivePosition(targetID)
-        let targetSize = nodeSizes[targetID] ?? NodeDefaults.size
-
-        let targetLeft = targetPos.x - targetSize.width / 2
-        let targetRight = targetPos.x + targetSize.width / 2
-        let targetTop = targetPos.y - targetSize.height / 2
-        let targetBottom = targetPos.y + targetSize.height / 2
-
-        var snapX: (delta: CGFloat, guide: AlignmentGuide)? = nil
-        var snapY: (delta: CGFloat, guide: AlignmentGuide)? = nil
-
-        // X axis — edges match edges, center matches center
-        for (draggedVal, targetVal) in [
-            (draggedLeft, targetLeft), (draggedRight, targetRight), (draggedCenterX, targetPos.x),
-        ] {
-            let delta = targetVal - draggedVal
-            if abs(delta) <= threshold && (snapX == nil || abs(delta) < abs(snapX!.delta)) {
-                snapX = (delta, AlignmentGuide(axis: .vertical, position: targetVal, targetNodeID: targetID))
-            }
-        }
-
-        // Y axis — edges match edges, center matches center
-        for (draggedVal, targetVal) in [
-            (draggedTop, targetTop), (draggedBottom, targetBottom), (draggedCenterY, targetPos.y),
-        ] {
-            let delta = targetVal - draggedVal
-            if abs(delta) <= threshold && (snapY == nil || abs(delta) < abs(snapY!.delta)) {
-                snapY = (delta, AlignmentGuide(axis: .horizontal, position: targetVal, targetNodeID: targetID))
-            }
-        }
-
-        return (snapX, snapY)
+    private struct SnapStop {
+        let value: CGFloat
+        let targetNodeID: UUID
+        let targetDistance: CGFloat
     }
 
-    /// Calculate snap result for a single dragged node.
-    func calculateSnap(for nodeID: UUID, rawOffset: CGSize, threshold: CGFloat = 5) -> SnapResult {
-        guard let node = nodes[nodeID] else {
+    private let snapScreenThreshold: CGFloat = 8
+    private let snapProximityPadding: CGFloat = 120
+    private let snapEpsilon: CGFloat = 0.0001
+
+    private var snapThresholdInCanvas: CGFloat {
+        snapScreenThreshold / max(canvasScale, 0.01)
+    }
+
+    private func boundsForNode(_ id: UUID) -> CGRect {
+        let pos = effectivePosition(id)
+        let size = nodeSizes[id] ?? NodeDefaults.size
+        return CGRect(
+            x: pos.x - size.width / 2,
+            y: pos.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// Gather nearby snap candidates around dragged bounds (axis-aware proximity, no Euclidean direction bucketing).
+    private func collectSnapCandidates(
+        around draggedBounds: CGRect,
+        excluding: Set<UUID>,
+        threshold: CGFloat
+    ) -> [SnapCandidate] {
+        let expanded = draggedBounds.insetBy(
+            dx: -(threshold + snapProximityPadding),
+            dy: -(threshold + snapProximityPadding)
+        )
+        let axisReach = max(draggedBounds.width, draggedBounds.height) + snapProximityPadding
+        let draggedCenter = CGPoint(x: draggedBounds.midX, y: draggedBounds.midY)
+
+        var candidates: [SnapCandidate] = []
+        candidates.reserveCapacity(nodes.count)
+
+        for id in nodes.keys where !excluding.contains(id) {
+            let bounds = boundsForNode(id)
+            let center = CGPoint(x: bounds.midX, y: bounds.midY)
+
+            let isNearByRect = expanded.intersects(bounds)
+            let isNearByAxis = abs(center.x - draggedCenter.x) <= axisReach
+                || abs(center.y - draggedCenter.y) <= axisReach
+            if isNearByRect || isNearByAxis {
+                candidates.append(SnapCandidate(id: id, bounds: bounds, center: center))
+            }
+        }
+
+        // Deterministic ordering to reduce frame-to-frame jitter.
+        return candidates.sorted { lhs, rhs in
+            if lhs.center.x != rhs.center.x { return lhs.center.x < rhs.center.x }
+            if lhs.center.y != rhs.center.y { return lhs.center.y < rhs.center.y }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    private func buildSnapStops(
+        from candidates: [SnapCandidate],
+        draggedCenter: CGPoint
+    ) -> (vertical: [SnapStop], horizontal: [SnapStop]) {
+        var vertical: [SnapStop] = []
+        var horizontal: [SnapStop] = []
+        vertical.reserveCapacity(candidates.count * 3)
+        horizontal.reserveCapacity(candidates.count * 3)
+
+        for candidate in candidates {
+            let distance = hypot(
+                candidate.center.x - draggedCenter.x,
+                candidate.center.y - draggedCenter.y
+            )
+
+            vertical.append(
+                SnapStop(
+                    value: candidate.bounds.minX,
+                    targetNodeID: candidate.id,
+                    targetDistance: distance
+                )
+            )
+            vertical.append(
+                SnapStop(
+                    value: candidate.bounds.midX,
+                    targetNodeID: candidate.id,
+                    targetDistance: distance
+                )
+            )
+            vertical.append(
+                SnapStop(
+                    value: candidate.bounds.maxX,
+                    targetNodeID: candidate.id,
+                    targetDistance: distance
+                )
+            )
+
+            horizontal.append(
+                SnapStop(
+                    value: candidate.bounds.minY,
+                    targetNodeID: candidate.id,
+                    targetDistance: distance
+                )
+            )
+            horizontal.append(
+                SnapStop(
+                    value: candidate.bounds.midY,
+                    targetNodeID: candidate.id,
+                    targetDistance: distance
+                )
+            )
+            horizontal.append(
+                SnapStop(
+                    value: candidate.bounds.maxY,
+                    targetNodeID: candidate.id,
+                    targetDistance: distance
+                )
+            )
+        }
+
+        return (vertical, horizontal)
+    }
+
+    /// Find best per-axis snap, keeping deterministic tie-breaking and collecting equivalent guide lines.
+    private func bestSnap(
+        for draggedValues: [CGFloat],
+        against stops: [SnapStop],
+        axis: AlignmentAxis,
+        threshold: CGFloat
+    ) -> (delta: CGFloat, guides: [AlignmentGuide])? {
+        var bestDelta: CGFloat?
+        var bestDistance = CGFloat.infinity
+        var bestStop: SnapStop?
+        var bestGuides: [AlignmentGuide] = []
+
+        for draggedValue in draggedValues {
+            for stop in stops {
+                let delta = stop.value - draggedValue
+                let distance = abs(delta)
+                guard distance <= threshold else { continue }
+
+                let guide = AlignmentGuide(axis: axis, position: stop.value, targetNodeID: stop.targetNodeID)
+
+                if bestDelta == nil || distance < bestDistance - snapEpsilon {
+                    bestDelta = delta
+                    bestDistance = distance
+                    bestStop = stop
+                    bestGuides = [guide]
+                    continue
+                }
+
+                guard let currentDelta = bestDelta, let currentStop = bestStop else { continue }
+                if abs(distance - bestDistance) > snapEpsilon {
+                    continue
+                }
+
+                // Same best distance. If delta is effectively identical, keep all equivalent guides.
+                if abs(delta - currentDelta) <= snapEpsilon {
+                    if !bestGuides.contains(guide) {
+                        bestGuides.append(guide)
+                    }
+                    continue
+                }
+
+                // Deterministic tie-break: nearer candidate center, then UUID.
+                if stop.targetDistance < currentStop.targetDistance - snapEpsilon
+                    || (abs(stop.targetDistance - currentStop.targetDistance) <= snapEpsilon
+                        && stop.targetNodeID.uuidString < currentStop.targetNodeID.uuidString)
+                {
+                    bestDelta = delta
+                    bestStop = stop
+                    bestGuides = [guide]
+                }
+            }
+        }
+
+        guard let finalDelta = bestDelta else { return nil }
+        let sortedGuides = bestGuides.sorted { lhs, rhs in
+            if lhs.position != rhs.position { return lhs.position < rhs.position }
+            return lhs.targetNodeID.uuidString < rhs.targetNodeID.uuidString
+        }
+        return (finalDelta, sortedGuides)
+    }
+
+    private func calculateSnapResult(
+        for draggedBounds: CGRect,
+        excluding excludeIDs: Set<UUID>,
+        rawOffset: CGSize,
+        threshold: CGFloat
+    ) -> SnapResult {
+        let candidates = collectSnapCandidates(
+            around: draggedBounds,
+            excluding: excludeIDs,
+            threshold: threshold
+        )
+        guard !candidates.isEmpty else {
             return SnapResult(snappedOffset: rawOffset, guides: [])
         }
 
-        let draggedPos = CGPoint(
-            x: node.position.x + rawOffset.width, y: node.position.y + rawOffset.height)
-        let draggedSize = nodeSizes[nodeID] ?? NodeDefaults.size
+        let draggedCenter = CGPoint(x: draggedBounds.midX, y: draggedBounds.midY)
+        let stops = buildSnapStops(from: candidates, draggedCenter: draggedCenter)
+        let xValues = [draggedBounds.minX, draggedBounds.midX, draggedBounds.maxX]
+        let yValues = [draggedBounds.minY, draggedBounds.midY, draggedBounds.maxY]
 
-        let draggedLeft = draggedPos.x - draggedSize.width / 2
-        let draggedRight = draggedPos.x + draggedSize.width / 2
-        let draggedTop = draggedPos.y - draggedSize.height / 2
-        let draggedBottom = draggedPos.y + draggedSize.height / 2
-
-        let excludeIDs: Set<UUID> = [nodeID]
-        let neighbors = closestNeighbors(from: draggedPos, excluding: excludeIDs)
-
-        var bestSnapX: (delta: CGFloat, guide: AlignmentGuide)? = nil
-        var bestSnapY: (delta: CGFloat, guide: AlignmentGuide)? = nil
-
-        for targetID in neighbors {
-            let result = checkAlignment(
-                draggedLeft: draggedLeft, draggedRight: draggedRight, draggedCenterX: draggedPos.x,
-                draggedTop: draggedTop, draggedBottom: draggedBottom, draggedCenterY: draggedPos.y,
-                targetID: targetID, threshold: threshold
-            )
-            if let sx = result.snapX, (bestSnapX == nil || abs(sx.delta) < abs(bestSnapX!.delta)) {
-                bestSnapX = sx
-            }
-            if let sy = result.snapY, (bestSnapY == nil || abs(sy.delta) < abs(bestSnapY!.delta)) {
-                bestSnapY = sy
-            }
-        }
+        let snapX = bestSnap(
+            for: xValues,
+            against: stops.vertical,
+            axis: .vertical,
+            threshold: threshold
+        )
+        let snapY = bestSnap(
+            for: yValues,
+            against: stops.horizontal,
+            axis: .horizontal,
+            threshold: threshold
+        )
 
         var adjustedOffset = rawOffset
         var guides: [AlignmentGuide] = []
 
-        if let snapX = bestSnapX {
+        if let snapX {
             adjustedOffset.width += snapX.delta
-            guides.append(snapX.guide)
+            guides.append(contentsOf: snapX.guides)
         }
-        if let snapY = bestSnapY {
+        if let snapY {
             adjustedOffset.height += snapY.delta
-            guides.append(snapY.guide)
+            guides.append(contentsOf: snapY.guides)
         }
 
         return SnapResult(snappedOffset: adjustedOffset, guides: guides)
     }
 
+    /// Calculate snap result for a single dragged node.
+    func calculateSnap(for nodeID: UUID, rawOffset: CGSize, threshold: CGFloat? = nil) -> SnapResult {
+        guard let node = nodes[nodeID] else {
+            return SnapResult(snappedOffset: rawOffset, guides: [])
+        }
+
+        let draggedPos = CGPoint(
+            x: node.position.x + rawOffset.width,
+            y: node.position.y + rawOffset.height
+        )
+        let draggedSize = nodeSizes[nodeID] ?? NodeDefaults.size
+        let draggedBounds = CGRect(
+            x: draggedPos.x - draggedSize.width / 2,
+            y: draggedPos.y - draggedSize.height / 2,
+            width: draggedSize.width,
+            height: draggedSize.height
+        )
+        let resolvedThreshold = threshold ?? snapThresholdInCanvas
+        return calculateSnapResult(
+            for: draggedBounds,
+            excluding: [nodeID],
+            rawOffset: rawOffset,
+            threshold: resolvedThreshold
+        )
+    }
+
     /// Calculate snap result for a group of selected nodes.
-    func calculateGroupSnap(for nodeIDs: Set<UUID>, rawOffset: CGSize, threshold: CGFloat = 5)
+    func calculateGroupSnap(for nodeIDs: Set<UUID>, rawOffset: CGSize, threshold: CGFloat? = nil)
         -> SnapResult
     {
         guard !nodeIDs.isEmpty else {
@@ -512,38 +662,18 @@ final class DominoViewModel: ObservableObject {
             maxY = max(maxY, pos.y + size.height / 2)
         }
 
-        let groupCenter = CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
-        let neighbors = closestNeighbors(from: groupCenter, excluding: nodeIDs)
-
-        var bestSnapX: (delta: CGFloat, guide: AlignmentGuide)? = nil
-        var bestSnapY: (delta: CGFloat, guide: AlignmentGuide)? = nil
-
-        for targetID in neighbors {
-            let result = checkAlignment(
-                draggedLeft: minX, draggedRight: maxX, draggedCenterX: groupCenter.x,
-                draggedTop: minY, draggedBottom: maxY, draggedCenterY: groupCenter.y,
-                targetID: targetID, threshold: threshold
-            )
-            if let sx = result.snapX, (bestSnapX == nil || abs(sx.delta) < abs(bestSnapX!.delta)) {
-                bestSnapX = sx
-            }
-            if let sy = result.snapY, (bestSnapY == nil || abs(sy.delta) < abs(bestSnapY!.delta)) {
-                bestSnapY = sy
-            }
-        }
-
-        var adjustedOffset = rawOffset
-        var guides: [AlignmentGuide] = []
-
-        if let snapX = bestSnapX {
-            adjustedOffset.width += snapX.delta
-            guides.append(snapX.guide)
-        }
-        if let snapY = bestSnapY {
-            adjustedOffset.height += snapY.delta
-            guides.append(snapY.guide)
-        }
-
-        return SnapResult(snappedOffset: adjustedOffset, guides: guides)
+        let draggedBounds = CGRect(
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
+        )
+        let resolvedThreshold = threshold ?? snapThresholdInCanvas
+        return calculateSnapResult(
+            for: draggedBounds,
+            excluding: nodeIDs,
+            rawOffset: rawOffset,
+            threshold: resolvedThreshold
+        )
     }
 }
