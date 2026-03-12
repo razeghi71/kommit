@@ -15,6 +15,7 @@ A lightweight mind map app for macOS, built with SwiftUI.
 ## Features
 
 - **Infinite canvas** with pan and pinch-to-zoom
+- **Alignment guides & smart snapping** - drag nodes to see guide lines and snap to aligned positions with nearby nodes
 - **Double-click** anywhere to create a node
 - **Drag from edge handles** to create child nodes or connect existing nodes
 - **Directed edges** with curved arrows between connected nodes
