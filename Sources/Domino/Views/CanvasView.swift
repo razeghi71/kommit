@@ -119,34 +119,87 @@ struct CanvasView: View {
                         )
                     }
 
-                    // Alignment guide lines + target node highlights
-                    ForEach(Array(viewModel.activeGuides.enumerated()), id: \.offset) { _, guide in
-                        // Guide line
-                        switch guide.axis {
-                        case .horizontal:
-                            Path { path in
-                                path.move(to: CGPoint(x: -50000, y: guide.position))
-                                path.addLine(to: CGPoint(x: 50000, y: guide.position))
+                    // Snap guide overlays + target node highlights
+                    ForEach(Array(viewModel.activeGuides.enumerated()), id: \.offset) { entry in
+                        let guide = entry.element
+                        switch guide.kind {
+                        case .alignmentLine:
+                            if let position = guide.position {
+                                switch guide.axis {
+                                case .horizontal:
+                                    Path { path in
+                                        path.move(to: CGPoint(x: -50000, y: position))
+                                        path.addLine(to: CGPoint(x: 50000, y: position))
+                                    }
+                                    .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                                    .allowsHitTesting(false)
+                                case .vertical:
+                                    Path { path in
+                                        path.move(to: CGPoint(x: position, y: -50000))
+                                        path.addLine(to: CGPoint(x: position, y: 50000))
+                                    }
+                                    .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                                    .allowsHitTesting(false)
+                                }
                             }
-                            .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                            .allowsHitTesting(false)
-                        case .vertical:
-                            Path { path in
-                                path.move(to: CGPoint(x: guide.position, y: -50000))
-                                path.addLine(to: CGPoint(x: guide.position, y: 50000))
+                        case .gapIndicator:
+                            ForEach(Array(guide.segments.enumerated()), id: \.offset) { segmentEntry in
+                                let segment = segmentEntry.element
+                                let label = gapLabel(for: segment, axis: guide.axis)
+                                Path { path in
+                                    path.move(to: segment.from)
+                                    path.addLine(to: segment.to)
+                                }
+                                .stroke(Color.accentColor.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                                .allowsHitTesting(false)
+
+                                Path { path in
+                                    let tick: CGFloat = 5
+                                    if guide.axis == .vertical {
+                                        path.move(to: CGPoint(x: segment.from.x, y: segment.from.y - tick))
+                                        path.addLine(to: CGPoint(x: segment.from.x, y: segment.from.y + tick))
+                                        path.move(to: CGPoint(x: segment.to.x, y: segment.to.y - tick))
+                                        path.addLine(to: CGPoint(x: segment.to.x, y: segment.to.y + tick))
+                                    } else {
+                                        path.move(to: CGPoint(x: segment.from.x - tick, y: segment.from.y))
+                                        path.addLine(to: CGPoint(x: segment.from.x + tick, y: segment.from.y))
+                                        path.move(to: CGPoint(x: segment.to.x - tick, y: segment.to.y))
+                                        path.addLine(to: CGPoint(x: segment.to.x + tick, y: segment.to.y))
+                                    }
+                                }
+                                .stroke(Color.accentColor.opacity(0.7), lineWidth: 1)
+                                .allowsHitTesting(false)
+
+                                if !label.isEmpty {
+                                    Text(label)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.95))
+                                        )
+                                        .overlay(
+                                            Capsule()
+                                                .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
+                                        )
+                                        .position(gapLabelPosition(for: segment, axis: guide.axis))
+                                        .allowsHitTesting(false)
+                                }
                             }
-                            .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                            .allowsHitTesting(false)
                         }
 
-                        // Highlight on the reference node
-                        let targetPos = viewModel.effectivePosition(guide.targetNodeID)
-                        let targetSize = viewModel.nodeSizes[guide.targetNodeID] ?? NodeDefaults.size
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.accentColor.opacity(0.5), lineWidth: 2)
-                            .frame(width: targetSize.width + 4, height: targetSize.height + 4)
-                            .position(targetPos)
-                            .allowsHitTesting(false)
+                        ForEach(Array(guide.targetNodeIDs.enumerated()), id: \.offset) { targetEntry in
+                            let targetID = targetEntry.element
+                            let targetPos = viewModel.effectivePosition(targetID)
+                            let targetSize = viewModel.nodeSizes[targetID] ?? NodeDefaults.size
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.accentColor.opacity(0.5), lineWidth: 2)
+                                .frame(width: targetSize.width + 4, height: targetSize.height + 4)
+                                .position(targetPos)
+                                .allowsHitTesting(false)
+                        }
                     }
 
                     // Nodes layer
@@ -231,5 +284,31 @@ struct CanvasView: View {
             x: min(from.x, to.x), y: min(from.y, to.y),
             width: abs(to.x - from.x), height: abs(to.y - from.y)
         )
+    }
+
+    private func gapLabel(for segment: GuideSegment, axis: AlignmentAxis) -> String {
+        let length: CGFloat
+        switch axis {
+        case .vertical:
+            length = abs(segment.to.x - segment.from.x)
+        case .horizontal:
+            length = abs(segment.to.y - segment.from.y)
+        }
+
+        guard length >= 1 else { return "" }
+        return "\(Int(length.rounded()))"
+    }
+
+    private func gapLabelPosition(for segment: GuideSegment, axis: AlignmentAxis) -> CGPoint {
+        let midX = (segment.from.x + segment.to.x) / 2
+        let midY = (segment.from.y + segment.to.y) / 2
+        let offset: CGFloat = 12
+
+        switch axis {
+        case .vertical:
+            return CGPoint(x: midX, y: midY - offset)
+        case .horizontal:
+            return CGPoint(x: midX + offset, y: midY)
+        }
     }
 }
