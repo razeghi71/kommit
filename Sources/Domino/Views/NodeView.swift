@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct NodeView: View {
@@ -5,6 +6,8 @@ struct NodeView: View {
     @ObservedObject var viewModel: DominoViewModel
     @AppStorage("showNodeRanks") private var showNodeRanks = true
     @State private var isHovering = false
+    @State private var showsPlannedDateTooltip = false
+    @State private var plannedDateTooltipTask: Task<Void, Never>?
     @State private var editText: String = ""
     @State private var dragOffset: CGSize = .zero
     @FocusState private var textFieldFocused: Bool
@@ -32,6 +35,16 @@ struct NodeView: View {
     private var nodeColor: Color? {
         guard let hex = node.colorHex else { return nil }
         return Color(hex: hex)
+    }
+
+    private var contextMenuTargetNodeIDs: Set<UUID> {
+        viewModel.contextMenuTargetNodeIDs(for: node.id)
+    }
+
+    private var hasColorInContextMenuTargets: Bool {
+        contextMenuTargetNodeIDs.contains { id in
+            viewModel.nodes[id]?.colorHex != nil
+        }
     }
 
     private let minWidth: CGFloat = 100
@@ -63,6 +76,12 @@ struct NodeView: View {
         ("Red", "EB5A46"),
         ("Blue", "0079BF"),
     ]
+    private static let plannedDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
     private static func colorDot(hex: String) -> NSImage {
         let size = NSSize(width: 14, height: 14)
@@ -104,11 +123,14 @@ struct NodeView: View {
                             .allowsHitTesting(false)
                     }
                 }
+                .overlay(alignment: .top) {
+                    plannedDateTooltip
+                }
                 .contextMenu {
                     Menu("Set Color") {
                         ForEach(Self.presetColors, id: \.hex) { preset in
                             Button {
-                                viewModel.setNodeColor(node.id, hex: preset.hex)
+                                viewModel.setNodeColors(contextMenuTargetNodeIDs, hex: preset.hex)
                             } label: {
                                 Label {
                                     Text(preset.name)
@@ -119,7 +141,7 @@ struct NodeView: View {
                         }
                         Divider()
                         Button("Custom...") {
-                            let nodeID = node.id
+                            let nodeIDs = contextMenuTargetNodeIDs
                             let vm = viewModel
                             let panel = NSColorPanel.shared
                             panel.setTarget(nil)
@@ -127,14 +149,31 @@ struct NodeView: View {
                             panel.color = NSColor(nodeColor ?? .white)
                             panel.orderFront(nil)
                             ColorPanelObserver.shared.observe(panel: panel) { nsColor in
-                                vm.setNodeColor(nodeID, hex: Color(nsColor: nsColor).toHex())
+                                vm.setNodeColors(nodeIDs, hex: Color(nsColor: nsColor).toHex())
                             }
                         }
-                        if node.colorHex != nil {
+                        if hasColorInContextMenuTargets {
                             Divider()
                             Button("Remove Color") {
-                                viewModel.setNodeColor(node.id, hex: nil)
+                                viewModel.setNodeColors(contextMenuTargetNodeIDs, hex: nil)
                             }
+                        }
+                    }
+
+                    Divider()
+
+                    if let plannedDate = node.plannedDate {
+                        Menu(Self.plannedDateFormatter.string(from: plannedDate)) {
+                            Button("Change Date") {
+                                setPlannedDate(initialDate: plannedDate)
+                            }
+                            Button("Remove Planned Date", role: .destructive) {
+                                viewModel.setNodePlannedDates(contextMenuTargetNodeIDs, date: nil)
+                            }
+                        }
+                    } else {
+                        Button("Set Planned Date") {
+                            setPlannedDate(initialDate: nil)
                         }
                     }
                 }
@@ -177,7 +216,17 @@ struct NodeView: View {
                 }
         )
         .onHover { hovering in
-            isHovering = hovering
+            handleNodeHoverChange(hovering)
+        }
+        .onChange(of: isEditing) { _, editing in
+            if editing {
+                cancelPlannedDateTooltip()
+            } else if isHovering {
+                schedulePlannedDateTooltip()
+            }
+        }
+        .onDisappear {
+            cancelPlannedDateTooltip()
         }
     }
 
@@ -282,6 +331,79 @@ struct NodeView: View {
             )
             .offset(x: dx, y: dy)
         }
+    }
+
+    @ViewBuilder
+    private var plannedDateTooltip: some View {
+        if showsPlannedDateTooltip, let plannedDate = node.plannedDate {
+            Text("Planned: \(Self.plannedDateFormatter.string(from: plannedDate))")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.regularMaterial)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.primary.opacity(0.15), lineWidth: 1)
+                )
+                .offset(y: -34)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func handleNodeHoverChange(_ hovering: Bool) {
+        isHovering = hovering
+        if hovering {
+            schedulePlannedDateTooltip()
+        } else {
+            cancelPlannedDateTooltip()
+        }
+    }
+
+    private func schedulePlannedDateTooltip() {
+        cancelPlannedDateTooltip()
+        guard node.plannedDate != nil, !isEditing else { return }
+        plannedDateTooltipTask = Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                if isHovering, node.plannedDate != nil, !isEditing {
+                    showsPlannedDateTooltip = true
+                }
+            }
+        }
+    }
+
+    private func cancelPlannedDateTooltip() {
+        plannedDateTooltipTask?.cancel()
+        plannedDateTooltipTask = nil
+        showsPlannedDateTooltip = false
+    }
+
+    private func setPlannedDate(initialDate: Date?) {
+        guard let pickedDate = promptForPlannedDate(initialDate: initialDate) else { return }
+        let normalized = Calendar.current.startOfDay(for: pickedDate)
+        viewModel.setNodePlannedDates(contextMenuTargetNodeIDs, date: normalized)
+    }
+
+    private func promptForPlannedDate(initialDate: Date?) -> Date? {
+        let datePicker = NSDatePicker(frame: NSRect(x: 0, y: 0, width: 220, height: 160))
+        datePicker.datePickerElements = .yearMonthDay
+        datePicker.datePickerStyle = .clockAndCalendar
+        datePicker.dateValue = initialDate ?? Date()
+
+        let alert = NSAlert()
+        alert.messageText = initialDate == nil ? "Set Planned Date" : "Change Planned Date"
+        alert.informativeText = "Choose a planned date for this node."
+        alert.accessoryView = datePicker
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return datePicker.dateValue
     }
 }
 

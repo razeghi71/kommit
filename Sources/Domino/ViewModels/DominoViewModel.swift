@@ -207,6 +207,40 @@ final class DominoViewModel: ObservableObject {
         nodes[id]?.colorHex = hex
     }
 
+    func setNodeColors(_ ids: Set<UUID>, hex: String?) {
+        guard !ids.isEmpty else { return }
+        saveSnapshot()
+        for id in ids {
+            nodes[id]?.colorHex = hex
+        }
+    }
+
+    func setNodePlannedDate(_ id: UUID, date: Date?) {
+        saveSnapshot()
+        nodes[id]?.plannedDate = date
+    }
+
+    func setNodePlannedDates(_ ids: Set<UUID>, date: Date?) {
+        guard !ids.isEmpty else { return }
+        saveSnapshot()
+        for id in ids {
+            nodes[id]?.plannedDate = date
+        }
+    }
+
+    func contextMenuTargetNodeIDs(for anchorNodeID: UUID) -> Set<UUID> {
+        let selectedSet: Set<UUID>
+        if !selectedNodeIDs.isEmpty {
+            selectedSet = selectedNodeIDs
+        } else if let selectedNodeID {
+            selectedSet = [selectedNodeID]
+        } else {
+            selectedSet = []
+        }
+
+        return selectedSet.contains(anchorNodeID) ? selectedSet : [anchorNodeID]
+    }
+
     func updateNodeText(_ id: UUID, text: String) {
         nodes[id]?.text = text
     }
