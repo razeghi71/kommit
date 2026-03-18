@@ -63,6 +63,13 @@ struct DominoApp: App {
             }
             CommandGroup(after: .toolbar) {
                 Toggle("Show Node Ranks", isOn: $showNodeRanks)
+                Toggle(
+                    "Show Hidden Items",
+                    isOn: Binding(
+                        get: { viewModel.showHiddenItems },
+                        set: { viewModel.setShowHiddenItems($0) }
+                    )
+                )
             }
             CommandGroup(after: .pasteboard) {
                 Button("Delete") {

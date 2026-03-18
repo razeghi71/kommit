@@ -47,6 +47,10 @@ struct NodeView: View {
         }
     }
 
+    private var areContextMenuTargetsHidden: Bool {
+        viewModel.areAllNodesHidden(contextMenuTargetNodeIDs)
+    }
+
     private let minWidth: CGFloat = 100
     private let cornerRadius: CGFloat = 8
 
@@ -56,6 +60,13 @@ struct NodeView: View {
 
     private var borderStroke: Color {
         highlighted ? borderColor : borderColor.opacity(0.2)
+    }
+
+    private var borderStyle: StrokeStyle {
+        StrokeStyle(
+            lineWidth: highlighted ? 1.5 : 1,
+            dash: (viewModel.showHiddenItems && node.isHidden) ? [6, 4] : []
+        )
     }
 
     private var fillColor: Color {
@@ -176,6 +187,15 @@ struct NodeView: View {
                             setPlannedDate(initialDate: nil)
                         }
                     }
+
+                    Divider()
+
+                    Button(areContextMenuTargetsHidden ? "Unhide" : "Hide") {
+                        viewModel.setNodesHidden(
+                            contextMenuTargetNodeIDs,
+                            isHidden: !areContextMenuTargetsHidden
+                        )
+                    }
                 }
             if isHovering && !isEditing {
                 plusButtons
@@ -277,7 +297,7 @@ struct NodeView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(borderStroke, lineWidth: highlighted ? 1.5 : 1)
+                            .stroke(borderStroke, style: borderStyle)
                     )
                     .onTapGesture(count: 1) {
                         if NSEvent.modifierFlags.contains(.shift) {

@@ -80,7 +80,7 @@ struct CanvasView: View {
                 }
 
                 // Empty state hint
-                if viewModel.nodes.isEmpty {
+                if viewModel.visibleNodes.isEmpty {
                     VStack(spacing: 8) {
                         Text("Double-click to add a node")
                             .font(.system(size: 15, weight: .medium))
@@ -203,7 +203,7 @@ struct CanvasView: View {
                     }
 
                     // Nodes layer
-                    ForEach(viewModel.sortedNodes) { node in
+                    ForEach(viewModel.visibleNodes) { node in
                         NodeView(node: node, viewModel: viewModel)
                             .position(node.position)
                     }

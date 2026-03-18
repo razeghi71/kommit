@@ -74,6 +74,7 @@ final class DominoViewModel: ObservableObject {
     @Published var fileLoadID: UUID = UUID()
     @Published var activeGuides: [SnapGuide] = []
     @Published var canvasScale: CGFloat = 1.0
+    @Published var showHiddenItems = false
 
     private var undoStack: [[UUID: DominoNode]] = []
     private var redoStack: [[UUID: DominoNode]] = []
@@ -112,6 +113,15 @@ final class DominoViewModel: ObservableObject {
 
     var sortedNodes: [DominoNode] {
         Array(nodes.values).sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+
+    var visibleNodes: [DominoNode] {
+        sortedNodes.filter { showHiddenItems || !$0.isHidden }
+    }
+
+    private func isNodeVisible(_ id: UUID) -> Bool {
+        guard let node = nodes[id] else { return false }
+        return showHiddenItems || !node.isHidden
     }
 
     var nodeDegrees: [UUID: Int] {
@@ -155,6 +165,9 @@ final class DominoViewModel: ObservableObject {
         nodes.values.flatMap { child in
             child.parentIDs.compactMap { parentID in
                 guard let parent = nodes[parentID] else { return nil }
+                if !showHiddenItems, (child.isHidden || parent.isHidden) {
+                    return nil
+                }
                 return Edge(id: "\(parentID)>\(child.id)", parent: parent, child: child)
             }
         }
@@ -241,6 +254,27 @@ final class DominoViewModel: ObservableObject {
         return selectedSet.contains(anchorNodeID) ? selectedSet : [anchorNodeID]
     }
 
+    func areAllNodesHidden(_ ids: Set<UUID>) -> Bool {
+        guard !ids.isEmpty else { return false }
+        return ids.allSatisfy { nodes[$0]?.isHidden == true }
+    }
+
+    func setNodesHidden(_ ids: Set<UUID>, isHidden: Bool) {
+        guard !ids.isEmpty else { return }
+        let targetIDs = ids.filter { nodes[$0]?.isHidden != isHidden }
+        guard !targetIDs.isEmpty else { return }
+        saveSnapshot()
+        for id in targetIDs {
+            nodes[id]?.isHidden = isHidden
+        }
+        pruneSelectionForHiddenItems()
+    }
+
+    func setShowHiddenItems(_ show: Bool) {
+        showHiddenItems = show
+        pruneSelectionForHiddenItems()
+    }
+
     func updateNodeText(_ id: UUID, text: String) {
         nodes[id]?.text = text
     }
@@ -266,7 +300,7 @@ final class DominoViewModel: ObservableObject {
 
     /// Find a node at the given canvas point (excluding a specific node)
     func nodeAt(point: CGPoint, excluding: UUID) -> UUID? {
-        for (id, _) in nodes where id != excluding {
+        for (id, _) in nodes where id != excluding && isNodeVisible(id) {
             let pos = effectivePosition(id)
             let size = nodeSizes[id] ?? NodeDefaults.size
             if abs(point.x - pos.x) <= size.width / 2 && abs(point.y - pos.y) <= size.height / 2 {
@@ -300,9 +334,31 @@ final class DominoViewModel: ObservableObject {
         selectedEdgeID = nil
     }
 
+    private func pruneSelectionForHiddenItems() {
+        guard !showHiddenItems else { return }
+
+        selectedNodeIDs = selectedNodeIDs.filter { nodes[$0]?.isHidden != true }
+        if let selectedNodeID, nodes[selectedNodeID]?.isHidden == true {
+            self.selectedNodeID = selectedNodeIDs.first
+        }
+
+        if let edgeID = selectedEdgeID {
+            let parts = edgeID.split(separator: ">")
+            if parts.count == 2,
+                let parentID = UUID(uuidString: String(parts[0])),
+                let childID = UUID(uuidString: String(parts[1]))
+            {
+                if nodes[parentID]?.isHidden == true || nodes[childID]?.isHidden == true {
+                    selectedEdgeID = nil
+                }
+            }
+        }
+    }
+
     func selectNodesInRect(_ rect: CGRect) {
         var ids = Set<UUID>()
         for (id, node) in nodes {
+            guard isNodeVisible(id) else { continue }
             let size = nodeSizes[id] ?? NodeDefaults.size
             let nodeRect = CGRect(
                 x: node.position.x - size.width / 2,
@@ -579,7 +635,7 @@ final class DominoViewModel: ObservableObject {
 
     private func sortedSnapCandidates(excluding: Set<UUID>) -> [SnapCandidate] {
         nodes.keys
-            .filter { !excluding.contains($0) }
+            .filter { !excluding.contains($0) && isNodeVisible($0) }
             .map { id in
                 let bounds = boundsForNode(id)
                 return SnapCandidate(
