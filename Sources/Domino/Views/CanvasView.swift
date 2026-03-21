@@ -19,7 +19,7 @@ struct CanvasView: View {
 
             ZStack {
                 // Background - drag to select, tap to deselect, double-click to create
-                Color(nsColor: .windowBackgroundColor)
+                AppColors.canvasBackgroundSwiftUI
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 3)

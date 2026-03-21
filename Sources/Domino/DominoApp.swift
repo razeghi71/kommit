@@ -104,8 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
     func configureWindow(_ window: NSWindow) {
         window.delegate = self
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = false
+        window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unifiedCompact
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = AppColors.canvasBackground
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
