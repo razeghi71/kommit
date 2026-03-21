@@ -20,12 +20,17 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("View", selection: $workspace) {
-                ForEach(CanvasWorkspace.allCases) { mode in
-                    Text(mode.title).tag(mode)
+            HStack {
+                Spacer(minLength: 0)
+                Picker("View", selection: $workspace) {
+                    ForEach(CanvasWorkspace.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                Spacer(minLength: 0)
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
 
