@@ -62,6 +62,11 @@ struct DominoApp: App {
                 .disabled(!viewModel.canRedo)
             }
             CommandGroup(after: .toolbar) {
+                Button("Find") {
+                    viewModel.presentSearch()
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
                 Toggle("Show Node Ranks", isOn: $showNodeRanks)
                 Toggle(
                     "Show Hidden Items",
@@ -106,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unifiedCompact
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.backgroundColor = AppColors.canvasBackground
     }
 

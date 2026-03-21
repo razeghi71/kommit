@@ -17,34 +17,80 @@ struct NodesTableView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.visibleNodes.isEmpty {
-                ContentUnavailableView(
-                    "No nodes",
-                    systemImage: "rectangle.on.rectangle.slash",
-                    description: Text("Add nodes in the graph view, or show hidden items if they are filtered out.")
-                )
-            } else {
-                // Two tables: conditional `TableColumn` requires macOS 14.4+ in SwiftUI.
-                Group {
-                    if viewModel.showHiddenItems {
-                        Table(viewModel.visibleNodes) {
-                            Self.sharedTableColumns(viewModel: viewModel)
-                            TableColumn("Hidden") { node in
-                                Text(node.isHidden ? "Yes" : "No")
-                                    .foregroundStyle(node.isHidden ? .secondary : .primary)
+        ScrollViewReader { proxy in
+            Group {
+                if viewModel.visibleNodes.isEmpty {
+                    ContentUnavailableView(
+                        "No nodes",
+                        systemImage: "rectangle.on.rectangle.slash",
+                        description: Text("Add nodes in the graph view, or show hidden items if they are filtered out.")
+                    )
+                } else {
+                    // Two tables: conditional `TableColumn` requires macOS 14.4+ in SwiftUI.
+                    Group {
+                        if viewModel.showHiddenItems {
+                            Table(viewModel.visibleNodes, selection: tableSelection) {
+                                Self.sharedTableColumns(viewModel: viewModel)
+                                TableColumn("Hidden") { node in
+                                    Text(node.isHidden ? "Yes" : "No")
+                                        .foregroundStyle(node.isHidden ? .secondary : .primary)
+                                }
+                                .width(min: 56, ideal: 72)
                             }
-                            .width(min: 56, ideal: 72)
-                        }
-                    } else {
-                        Table(viewModel.visibleNodes) {
-                            Self.sharedTableColumns(viewModel: viewModel)
+                        } else {
+                            Table(viewModel.visibleNodes, selection: tableSelection) {
+                                Self.sharedTableColumns(viewModel: viewModel)
+                            }
                         }
                     }
                 }
             }
+            .onAppear {
+                focusSelectedNode(using: proxy)
+            }
+            .onChange(of: viewModel.selectedNodeID) { _, _ in
+                focusSelectedNode(using: proxy)
+            }
+            .onChange(of: viewModel.tableFocusRequest) { _, request in
+                guard let request else { return }
+                focusNode(request.nodeID, using: proxy)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var tableSelection: Binding<UUID?> {
+        Binding(
+            get: {
+                guard let selectedNodeID = viewModel.selectedNodeID,
+                    viewModel.visibleNodes.contains(where: { $0.id == selectedNodeID })
+                else {
+                    return nil
+                }
+                return selectedNodeID
+            },
+            set: { newValue in
+                guard let newValue else {
+                    viewModel.clearSelection()
+                    return
+                }
+                viewModel.selectSingleNode(newValue)
+            }
+        )
+    }
+
+    private func focusSelectedNode(using proxy: ScrollViewProxy) {
+        guard let selectedNodeID = viewModel.selectedNodeID else { return }
+        focusNode(selectedNodeID, using: proxy)
+    }
+
+    private func focusNode(_ nodeID: UUID, using proxy: ScrollViewProxy) {
+        guard viewModel.visibleNodes.contains(where: { $0.id == nodeID }) else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                proxy.scrollTo(nodeID, anchor: .center)
+            }
+        }
     }
 }
 

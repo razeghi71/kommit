@@ -223,6 +223,10 @@ struct CanvasView: View {
             .onChange(of: currentScale) { _, newScale in
                 viewModel.canvasScale = newScale
             }
+            .onChange(of: viewModel.canvasFocusRequest) { _, request in
+                guard let request else { return }
+                centerOnNode(request.nodeID, viewportSize: geo.size)
+            }
         }
         .simultaneousGesture(
             MagnifyGesture()
@@ -253,6 +257,19 @@ struct CanvasView: View {
         panOffset = CGSize(
             width: viewportSize.width / 2 - avgX,
             height: viewportSize.height / 2 - avgY
+        )
+    }
+
+    private func centerOnNode(_ nodeID: UUID, viewportSize: CGSize) {
+        guard let node = viewModel.nodes[nodeID], viewModel.visibleNodes.contains(where: { $0.id == nodeID }) else {
+            return
+        }
+
+        scale = 1.0
+        gestureScale = 1.0
+        panOffset = CGSize(
+            width: viewportSize.width / 2 - node.position.x,
+            height: viewportSize.height / 2 - node.position.y
         )
     }
 

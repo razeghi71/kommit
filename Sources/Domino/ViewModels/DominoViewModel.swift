@@ -59,6 +59,15 @@ struct EdgeDragState: Equatable {
     var currentPoint: CGPoint
 }
 
+struct NodeFocusRequest: Equatable {
+    let nodeID: UUID
+    let token = UUID()
+}
+
+struct SearchPresentationRequest: Equatable {
+    let token = UUID()
+}
+
 @MainActor
 final class DominoViewModel: ObservableObject {
     @Published var nodes: [UUID: DominoNode] = [:]
@@ -75,6 +84,9 @@ final class DominoViewModel: ObservableObject {
     @Published var activeGuides: [SnapGuide] = []
     @Published var canvasScale: CGFloat = 1.0
     @Published var showHiddenItems = false
+    @Published var canvasFocusRequest: NodeFocusRequest?
+    @Published var tableFocusRequest: NodeFocusRequest?
+    @Published var searchPresentationRequest: SearchPresentationRequest?
 
     private var undoStack: [[UUID: DominoNode]] = []
     private var redoStack: [[UUID: DominoNode]] = []
@@ -352,6 +364,38 @@ final class DominoViewModel: ObservableObject {
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
         selectedEdgeID = nil
+    }
+
+    func selectSingleNode(_ id: UUID) {
+        guard isNodeVisible(id) else { return }
+        commitEditing()
+        selectedNodeID = id
+        selectedNodeIDs = [id]
+        selectedEdgeID = nil
+    }
+
+    func requestCanvasFocus(on id: UUID) {
+        guard isNodeVisible(id) else { return }
+        canvasFocusRequest = NodeFocusRequest(nodeID: id)
+    }
+
+    func requestTableFocus(on id: UUID) {
+        guard isNodeVisible(id) else { return }
+        tableFocusRequest = NodeFocusRequest(nodeID: id)
+    }
+
+    func selectFirstVisibleNode(matching query: String) -> UUID? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let node = visibleNodes.first(where: { $0.text.localizedCaseInsensitiveContains(trimmed) }) else {
+            return nil
+        }
+        selectSingleNode(node.id)
+        return node.id
+    }
+
+    func presentSearch() {
+        searchPresentationRequest = SearchPresentationRequest()
     }
 
     private func pruneSelectionForHiddenItems() {
