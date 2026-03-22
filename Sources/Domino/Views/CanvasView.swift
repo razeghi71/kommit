@@ -140,22 +140,13 @@ struct CanvasView: View {
                         switch guide.kind {
                         case .alignmentLine:
                             if let position = guide.position {
-                                switch guide.axis {
-                                case .horizontal:
-                                    Path { path in
-                                        path.move(to: CGPoint(x: -50000, y: position))
-                                        path.addLine(to: CGPoint(x: 50000, y: position))
-                                    }
-                                    .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                                    .allowsHitTesting(false)
-                                case .vertical:
-                                    Path { path in
-                                        path.move(to: CGPoint(x: position, y: -50000))
-                                        path.addLine(to: CGPoint(x: position, y: 50000))
-                                    }
-                                    .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                                    .allowsHitTesting(false)
-                                }
+                                alignmentGuideLinePath(
+                                    guide: guide,
+                                    position: position,
+                                    viewModel: viewModel
+                                )
+                                .stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                                .allowsHitTesting(false)
                             }
                         case .gapIndicator:
                             ForEach(Array(guide.segments.enumerated()), id: \.offset) { segmentEntry in
@@ -477,6 +468,43 @@ struct CanvasView: View {
             x: min(from.x, to.x), y: min(from.y, to.y),
             width: abs(to.x - from.x), height: abs(to.y - from.y)
         )
+    }
+
+    /// Clips alignment guides to the span of targets + current selection so the line reads as a fixed “rail”
+    /// between those nodes instead of an infinite canvas-wide stroke that tracks the eye with the drag.
+    private func alignmentGuideLinePath(guide: SnapGuide, position: CGFloat, viewModel: DominoViewModel) -> Path {
+        let margin: CGFloat = 48
+        var relevantIDs = Set(guide.targetNodeIDs)
+        relevantIDs.formUnion(viewModel.selectedNodeIDs)
+
+        guard let u = viewModel.canvasBoundsUnion(nodeIDs: relevantIDs), !u.isNull else {
+            return alignmentGuideInfinitePath(axis: guide.axis, position: position)
+        }
+
+        var path = Path()
+        switch guide.axis {
+        case .horizontal:
+            path.move(to: CGPoint(x: u.minX - margin, y: position))
+            path.addLine(to: CGPoint(x: u.maxX + margin, y: position))
+        case .vertical:
+            path.move(to: CGPoint(x: position, y: u.minY - margin))
+            path.addLine(to: CGPoint(x: position, y: u.maxY + margin))
+        }
+        return path
+    }
+
+    private func alignmentGuideInfinitePath(axis: AlignmentAxis, position: CGFloat) -> Path {
+        let huge: CGFloat = 50_000
+        var path = Path()
+        switch axis {
+        case .horizontal:
+            path.move(to: CGPoint(x: -huge, y: position))
+            path.addLine(to: CGPoint(x: huge, y: position))
+        case .vertical:
+            path.move(to: CGPoint(x: position, y: -huge))
+            path.addLine(to: CGPoint(x: position, y: huge))
+        }
+        return path
     }
 
     private func gapLabel(for segment: GuideSegment, axis: AlignmentAxis) -> String {

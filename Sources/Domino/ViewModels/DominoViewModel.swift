@@ -10,6 +10,11 @@ enum AlignmentAxis: Sendable {
     case vertical  // a vertical line (x value)
 }
 
+/// Distribute multi-selected nodes to a common edge using the extreme node on that axis.
+enum NodeAlignment: Sendable {
+    case left, right, top, bottom
+}
+
 struct GuideSegment: Equatable, Sendable {
     let from: CGPoint
     let to: CGPoint
@@ -226,6 +231,28 @@ final class DominoViewModel: ObservableObject {
         return node.position
     }
 
+    /// Axis-aligned bounds in canvas space (uses drag preview via `effectivePosition` and measured `nodeSizes`).
+    func canvasBounds(forNode id: UUID) -> CGRect? {
+        guard nodes[id] != nil else { return nil }
+        let pos = effectivePosition(id)
+        let size = nodeSizes[id] ?? NodeDefaults.size
+        return CGRect(
+            x: pos.x - size.width / 2,
+            y: pos.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    func canvasBoundsUnion<S: Sequence>(nodeIDs: S) -> CGRect? where S.Element == UUID {
+        var union: CGRect?
+        for id in nodeIDs {
+            guard let rect = canvasBounds(forNode: id) else { continue }
+            union = union.map { $0.union(rect) } ?? rect
+        }
+        return union
+    }
+
     func moveNode(_ id: UUID, to position: CGPoint) {
         saveSnapshot()
         nodes[id]?.position = position
@@ -281,6 +308,61 @@ final class DominoViewModel: ObservableObject {
         }
 
         return selectedSet.contains(anchorNodeID) ? selectedSet : [anchorNodeID]
+    }
+
+    /// Aligns every node in `ids` to the same minX, maxX, minY, or maxY as the extreme among the selection (uses stored positions and measured sizes).
+    func alignNodes(_ ids: Set<UUID>, alignment: NodeAlignment) {
+        guard ids.count >= 2 else { return }
+        let targets = ids.filter { nodes[$0] != nil }
+        guard targets.count >= 2 else { return }
+
+        var rects: [(UUID, CGRect)] = []
+        rects.reserveCapacity(targets.count)
+        for id in targets {
+            guard let node = nodes[id] else { continue }
+            let size = nodeSizes[id] ?? NodeDefaults.size
+            let rect = CGRect(
+                x: node.position.x - size.width / 2,
+                y: node.position.y - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+            rects.append((id, rect))
+        }
+        guard rects.count >= 2 else { return }
+
+        saveSnapshot()
+
+        switch alignment {
+        case .left:
+            let ref = rects.map(\.1.minX).min()!
+            for (id, _) in rects {
+                let w = (nodeSizes[id] ?? NodeDefaults.size).width
+                nodes[id]?.position.x = ref + w / 2
+            }
+        case .right:
+            let ref = rects.map(\.1.maxX).max()!
+            for (id, _) in rects {
+                let w = (nodeSizes[id] ?? NodeDefaults.size).width
+                nodes[id]?.position.x = ref - w / 2
+            }
+        case .top:
+            let ref = rects.map(\.1.minY).min()!
+            for (id, _) in rects {
+                let h = (nodeSizes[id] ?? NodeDefaults.size).height
+                nodes[id]?.position.y = ref + h / 2
+            }
+        case .bottom:
+            let ref = rects.map(\.1.maxY).max()!
+            for (id, _) in rects {
+                let h = (nodeSizes[id] ?? NodeDefaults.size).height
+                nodes[id]?.position.y = ref - h / 2
+            }
+        }
+
+        for id in targets {
+            nodeDragOffset.removeValue(forKey: id)
+        }
     }
 
     func areAllNodesHidden(_ ids: Set<UUID>) -> Bool {

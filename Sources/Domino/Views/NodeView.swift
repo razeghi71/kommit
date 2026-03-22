@@ -147,7 +147,7 @@ struct NodeView: View {
                     plannedDateTooltip
                 }
                 .contextMenu {
-                    Menu("Set Color") {
+                    Menu {
                         ForEach(NodeColorPresets.presets, id: \.hex) { preset in
                             Button {
                                 viewModel.setNodeColors(contextMenuTargetNodeIDs, hex: preset.hex)
@@ -160,7 +160,7 @@ struct NodeView: View {
                             }
                         }
                         Divider()
-                        Button("Custom...") {
+                        Button {
                             let nodeIDs = contextMenuTargetNodeIDs
                             let vm = viewModel
                             let panel = NSColorPanel.shared
@@ -171,54 +171,109 @@ struct NodeView: View {
                             ColorPanelObserver.shared.observe(panel: panel) { nsColor in
                                 vm.setNodeColors(nodeIDs, hex: Color(nsColor: nsColor).toHex())
                             }
+                        } label: {
+                            Label("Custom…", systemImage: "eyedropper")
                         }
                         if hasColorInContextMenuTargets {
                             Divider()
-                            Button("Remove Color") {
+                            Button {
                                 viewModel.setNodeColors(contextMenuTargetNodeIDs, hex: nil)
+                            } label: {
+                                Label("Remove Color", systemImage: "xmark.circle")
                             }
+                        }
+                    } label: {
+                        Label("Set Color", systemImage: "paintpalette")
+                    }
+
+                    if contextMenuTargetNodeIDs.count > 1 {
+                        Menu {
+                            Button {
+                                viewModel.alignNodes(contextMenuTargetNodeIDs, alignment: .left)
+                            } label: {
+                                Label("Align Left", systemImage: "align.horizontal.left")
+                            }
+                            Button {
+                                viewModel.alignNodes(contextMenuTargetNodeIDs, alignment: .right)
+                            } label: {
+                                Label("Align Right", systemImage: "align.horizontal.right")
+                            }
+                            Button {
+                                viewModel.alignNodes(contextMenuTargetNodeIDs, alignment: .top)
+                            } label: {
+                                Label("Align Top", systemImage: "align.vertical.top")
+                            }
+                            Button {
+                                viewModel.alignNodes(contextMenuTargetNodeIDs, alignment: .bottom)
+                            } label: {
+                                Label("Align Bottom", systemImage: "align.vertical.bottom")
+                            }
+                        } label: {
+                            Label("Align", systemImage: "align.horizontal.center")
                         }
                     }
 
                     Divider()
 
                     if let plannedDate = node.plannedDate {
-                        Menu(Self.plannedDateFormatter.string(from: plannedDate)) {
-                            Button("Change Date") {
+                        Menu {
+                            Button {
                                 setPlannedDate(initialDate: plannedDate)
+                            } label: {
+                                Label("Change Date", systemImage: "calendar.badge.clock")
                             }
-                            Button("Remove Planned Date", role: .destructive) {
+                            Button(role: .destructive) {
                                 viewModel.setNodePlannedDates(contextMenuTargetNodeIDs, date: nil)
+                            } label: {
+                                Label("Remove Planned Date", systemImage: "calendar.badge.minus")
                             }
+                        } label: {
+                            Label(Self.plannedDateFormatter.string(from: plannedDate), systemImage: "calendar")
                         }
                     } else {
-                        Button("Set Planned Date") {
+                        Button {
                             setPlannedDate(initialDate: nil)
+                        } label: {
+                            Label("Set Planned Date", systemImage: "calendar.badge.plus")
                         }
                     }
 
                     if let budget = node.budget {
-                        Menu("Cost: \(formattedBudget(budget))") {
-                            Button("Change Cost") {
+                        Menu {
+                            Button {
                                 setBudget(initialBudget: budget)
+                            } label: {
+                                Label("Change Cost", systemImage: "dollarsign.circle")
                             }
-                            Button("Remove Cost", role: .destructive) {
+                            Button(role: .destructive) {
                                 viewModel.setNodeBudgets(contextMenuTargetNodeIDs, budget: nil)
+                            } label: {
+                                Label("Remove Cost", systemImage: "dollarsign.circle.fill")
                             }
+                        } label: {
+                            Label("Cost: \(formattedBudget(budget))", systemImage: "dollarsign.circle")
                         }
                     } else {
-                        Button("Set Cost") {
+                        Button {
                             setBudget(initialBudget: nil)
+                        } label: {
+                            Label("Set Cost", systemImage: "dollarsign.circle")
                         }
                     }
 
                     Divider()
 
-                    Button(areContextMenuTargetsHidden ? "Unhide" : "Hide") {
+                    Button {
                         viewModel.setNodesHidden(
                             contextMenuTargetNodeIDs,
                             isHidden: !areContextMenuTargetsHidden
                         )
+                    } label: {
+                        if areContextMenuTargetsHidden {
+                            Label("Unhide", systemImage: "eye")
+                        } else {
+                            Label("Hide", systemImage: "eye.slash")
+                        }
                     }
                 }
             if isHovering && !isEditing {
