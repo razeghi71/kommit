@@ -6,6 +6,13 @@ private enum CanvasRecenter {
     static let maxComfortScale: CGFloat = 2.75
 }
 
+private enum SelectionMarqueeAutoScroll {
+    static let edgeMargin: CGFloat = 56
+    static let maxStep: CGFloat = 14
+    /// Require the pointer to stay in an edge band this long before panning (avoids accidental nudges).
+    static let dwellSeconds: TimeInterval = 0.35
+}
+
 struct CanvasView: View {
     @ObservedObject var viewModel: DominoViewModel
 
@@ -15,9 +22,11 @@ struct CanvasView: View {
     /// Canvas-space point pinned under the pinch location while a magnify gesture is active.
     @State private var magnifyFocalCanvasPoint: CGPoint?
 
-    // Rectangle selection state
-    @State private var selectionStart: CGPoint? = nil
+    // Rectangle selection: fixed canvas anchor + current pointer in screen space (overlay maps anchor→screen each frame)
     @State private var selectionEnd: CGPoint? = nil
+    @State private var selectionAnchorCanvas: CGPoint? = nil
+    @State private var viewportSize: CGSize = .zero
+    @State private var selectionEdgeEnteredAt: Date? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -39,30 +48,50 @@ struct CanvasView: View {
                     .gesture(
                         DragGesture(minimumDistance: 3)
                             .onChanged { value in
-                                if selectionStart == nil {
-                                    selectionStart = value.startLocation
+                                if selectionAnchorCanvas == nil {
+                                    selectionAnchorCanvas = screenPointToCanvas(
+                                        value.startLocation,
+                                        offset: totalOffset,
+                                        scale: currentScale,
+                                        center: center
+                                    )
                                 }
                                 selectionEnd = value.location
 
-                                // Convert screen rect to canvas coordinates for live selection
-                                if let start = selectionStart {
-                                    let canvasRect = screenRectToCanvas(
-                                        from: start, to: value.location,
-                                        offset: totalOffset, scale: currentScale, center: center
+                                let edgeDelta = selectionEdgePanDelta(point: value.location, in: geo.size)
+                                if edgeDelta != .zero {
+                                    if selectionEdgeEnteredAt == nil {
+                                        selectionEdgeEnteredAt = Date()
+                                    }
+                                } else {
+                                    selectionEdgeEnteredAt = nil
+                                }
+
+                                if let anchor = selectionAnchorCanvas {
+                                    let canvasRect = marqueeCanvasRect(
+                                        anchorCanvas: anchor,
+                                        endScreen: value.location,
+                                        offset: totalOffset,
+                                        scale: currentScale,
+                                        center: center
                                     )
                                     viewModel.selectNodesInRect(canvasRect)
                                 }
                             }
                             .onEnded { value in
-                                if let start = selectionStart {
-                                    let canvasRect = screenRectToCanvas(
-                                        from: start, to: value.location,
-                                        offset: totalOffset, scale: currentScale, center: center
+                                if let anchor = selectionAnchorCanvas {
+                                    let canvasRect = marqueeCanvasRect(
+                                        anchorCanvas: anchor,
+                                        endScreen: value.location,
+                                        offset: totalOffset,
+                                        scale: currentScale,
+                                        center: center
                                     )
                                     viewModel.selectNodesInRect(canvasRect)
                                 }
-                                selectionStart = nil
                                 selectionEnd = nil
+                                selectionAnchorCanvas = nil
+                                selectionEdgeEnteredAt = nil
                             }
                     )
                     .onTapGesture(count: 2) { location in
@@ -81,8 +110,14 @@ struct CanvasView: View {
                     )
 
                 // Selection rectangle overlay
-                if let start = selectionStart, let end = selectionEnd {
-                    let rect = normalizedRect(from: start, to: end)
+                if let anchor = selectionAnchorCanvas, let end = selectionEnd {
+                    let startScreen = canvasPointToScreen(
+                        anchor,
+                        offset: totalOffset,
+                        scale: currentScale,
+                        center: center
+                    )
+                    let rect = normalizedRect(from: startScreen, to: end)
                     Rectangle()
                         .fill(Color.accentColor.opacity(0.1))
                         .overlay(
@@ -257,8 +292,37 @@ struct CanvasView: View {
                 }
             }
             .onAppear {
+                viewportSize = geo.size
                 viewModel.canvasScale = currentScale
                 applyCanvasRecenterIfPending(viewportSize: geo.size)
+            }
+            .onChange(of: geo.size) { _, newSize in
+                viewportSize = newSize
+            }
+            .onReceive(Timer.publish(every: 1 / 60, on: .main, in: .common).autoconnect()) { _ in
+                guard let end = selectionEnd,
+                    let anchor = selectionAnchorCanvas
+                else { return }
+                let sz = viewportSize
+                guard sz.width > 1, sz.height > 1 else { return }
+                let edgeDelta = selectionEdgePanDelta(point: end, in: sz)
+                guard edgeDelta != .zero,
+                    let entered = selectionEdgeEnteredAt,
+                    Date().timeIntervalSince(entered) >= SelectionMarqueeAutoScroll.dwellSeconds
+                else { return }
+
+                let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
+                let liveScale = scale * gestureScale
+                panOffset.width += edgeDelta.width
+                panOffset.height += edgeDelta.height
+                let canvasRect = marqueeCanvasRect(
+                    anchorCanvas: anchor,
+                    endScreen: end,
+                    offset: panOffset,
+                    scale: liveScale,
+                    center: c
+                )
+                viewModel.selectNodesInRect(canvasRect)
             }
             .onChange(of: currentScale) { _, newScale in
                 viewModel.canvasScale = newScale
@@ -452,14 +516,52 @@ struct CanvasView: View {
         )
     }
 
-    /// Convert two screen points to a normalized CGRect in canvas coordinates
-    private func screenRectToCanvas(from: CGPoint, to: CGPoint, offset: CGSize, scale: CGFloat, center: CGPoint) -> CGRect {
-        let p1 = screenPointToCanvas(from, offset: offset, scale: scale, center: center)
-        let p2 = screenPointToCanvas(to, offset: offset, scale: scale, center: center)
-        return CGRect(
-            x: min(p1.x, p2.x), y: min(p1.y, p2.y),
-            width: abs(p2.x - p1.x), height: abs(p2.y - p1.y)
+    /// Inverse of `screenPointToCanvas` — for marquee overlay while panning / autoscrolling.
+    private func canvasPointToScreen(_ point: CGPoint, offset: CGSize, scale: CGFloat, center: CGPoint) -> CGPoint {
+        CGPoint(
+            x: (point.x - center.x) * scale + center.x + offset.width,
+            y: (point.y - center.y) * scale + center.y + offset.height
         )
+    }
+
+    /// Marquee from a fixed canvas anchor to the current finger position (screen), so autoscroll extends the selection.
+    private func marqueeCanvasRect(
+        anchorCanvas: CGPoint,
+        endScreen: CGPoint,
+        offset: CGSize,
+        scale: CGFloat,
+        center: CGPoint
+    ) -> CGRect {
+        let endCanvas = screenPointToCanvas(endScreen, offset: offset, scale: scale, center: center)
+        return CGRect(
+            x: min(anchorCanvas.x, endCanvas.x),
+            y: min(anchorCanvas.y, endCanvas.y),
+            width: abs(endCanvas.x - anchorCanvas.x),
+            height: abs(endCanvas.y - anchorCanvas.y)
+        )
+    }
+
+    private func selectionEdgePanDelta(point: CGPoint, in size: CGSize) -> CGSize {
+        let m = SelectionMarqueeAutoScroll.edgeMargin
+        let maxStep = SelectionMarqueeAutoScroll.maxStep
+        guard size.width > m * 2, size.height > m * 2 else { return .zero }
+
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+
+        if point.x < m {
+            dx = maxStep * (m - point.x) / m
+        } else if point.x > size.width - m {
+            dx = -maxStep * (point.x - (size.width - m)) / m
+        }
+
+        if point.y < m {
+            dy = maxStep * (m - point.y) / m
+        } else if point.y > size.height - m {
+            dy = -maxStep * (point.y - (size.height - m)) / m
+        }
+
+        return CGSize(width: dx, height: dy)
     }
 
     /// Normalize two points into a positive-sized rect (for screen overlay)
