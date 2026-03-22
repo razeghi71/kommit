@@ -336,7 +336,7 @@ struct CanvasView: View {
         scale: CGFloat
     ) -> Bool {
         if viewModel.visibleNodes.isEmpty {
-            return true
+            return false
         }
         if scale < CanvasRecenter.minComfortScale || scale > CanvasRecenter.maxComfortScale {
             return true
