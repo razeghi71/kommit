@@ -4,7 +4,7 @@
 
 # Domino
 
-A lightweight mind map app for macOS, built with SwiftUI.
+Plan projects and life on your Mac in one place. Domino lays out goals and tasks on an open canvas, adds dates and budgets where you need them, and offers a table view when a list is easier than a map. Built with SwiftUI.
 
 [![Download](https://img.shields.io/badge/Download-Latest%20Release-blue?style=for-the-badge)](https://github.com/razeghi71/domino/releases/latest/download/Domino.zip)
 
@@ -14,17 +14,16 @@ A lightweight mind map app for macOS, built with SwiftUI.
 
 ## Features
 
-- **Infinite canvas** with pan and pinch-to-zoom
-- **Alignment guides & smart snapping** - drag nodes to see guide lines and snap to aligned positions with nearby nodes
-- **Double-click** anywhere to create a node
-- **Drag from edge handles** to create child nodes or connect existing nodes
-- **Directed edges** with curved arrows between connected nodes
-- **Click to select**, click again to edit text inline
-- **Node colors** via right-click context menu (presets + custom color picker)
-- **Undo/Redo** (Cmd+Z / Cmd+Shift+Z, up to 50 levels)
-- **Save/Open** mind maps as JSON (Cmd+S, Cmd+O)
-- **Delete** nodes or edges with the Delete key (children get reparented automatically)
-- **Depth badges** showing each node's distance from root nodes
+- **Graph canvas** — infinite pan and zoom (zoom follows the pointer); nodes link in a hierarchy you can reshape
+- **Table view** — the same map as rows: text, planned date, budget, color, and visibility
+- **Planned dates** and **budgets** on nodes
+- **Hide nodes**; **Show Hidden Items** in the menu when you need hidden work back on the canvas
+- **Search** across node text (**⌘F**)
+- **Recenter canvas** after heavy zoom or pan (**⌘0**)
+- **Snapping** — alignment guides, equal-spacing gap guides, and align selected nodes to a shared left, right, top, or bottom edge
+- **Node colors** (presets or custom)
+- **Depth ranks** from root nodes (optional via the menu)
+- **Undo/redo** and **save/open** documents as JSON
 
 ## Requirements
 
