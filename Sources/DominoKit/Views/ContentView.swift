@@ -52,8 +52,9 @@ private struct CanvasWorkspaceTabs: View {
     }
 }
 
-struct ContentView: View {
-    @ObservedObject var viewModel: DominoViewModel
+package struct ContentView: View {
+    @ObservedObject package var viewModel: DominoViewModel
+    @Environment(\.openWindow) private var openWindow
     @State private var workspace: CanvasWorkspace = .graph
     @State private var isSearchPresented = false
     @State private var searchText = ""
@@ -61,7 +62,11 @@ struct ContentView: View {
     @State private var lastSearchedQuery = ""
     @FocusState private var searchFieldFocused: Bool
 
-    var body: some View {
+    package init(viewModel: DominoViewModel) {
+        self.viewModel = viewModel
+    }
+
+    package var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 CanvasWorkspaceTabs(selection: $workspace)
@@ -87,6 +92,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .zIndex(0)
+        }
+        .onAppear {
+            viewModel.openSettingsWindowAction = { openWindow(id: "settings") }
         }
         .onChange(of: workspace) { _, newWorkspace in
             guard let selectedNodeID = viewModel.selectedNodeID else { return }

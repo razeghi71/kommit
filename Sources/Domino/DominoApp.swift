@@ -1,5 +1,6 @@
-import SwiftUI
 import AppKit
+import DominoKit
+import SwiftUI
 
 @main
 struct DominoApp: App {
@@ -20,6 +21,12 @@ struct DominoApp: App {
         }
         .defaultSize(width: 1200, height: 800)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    openWindow(id: "settings")
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
                     viewModel.save()
@@ -99,6 +106,10 @@ struct DominoApp: App {
                 .disabled(viewModel.editingNodeID != nil || (viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil))
             }
         }
+        Window("Settings", id: "settings") {
+            SettingsView(viewModel: viewModel)
+        }
+        .defaultSize(width: 620, height: 520)
     }
 
     private func ensureWindowOpen() {

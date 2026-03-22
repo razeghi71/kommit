@@ -84,7 +84,9 @@ private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDel
         table.selectionHighlightStyle = .regular
         table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.backgroundColor = .clear
-        table.usesAutomaticRowHeights = true
+        // Automatic row heights + mixed AppKit/SwiftUI cells is a common source of constraint/baseline
+        // exceptions inside `NSTableView` (seen when changing status from the table).
+        table.usesAutomaticRowHeights = false
         if #available(macOS 11.0, *) {
             table.style = .fullWidth
         }
@@ -96,7 +98,7 @@ private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDel
             table.removeTableColumn(col)
         }
         table.addTableColumn(Self.makeColumn(id: "text", title: "Text", min: 160, width: 280))
-        table.addTableColumn(Self.makeColumn(id: "color", title: "Color", min: 100, width: 120))
+        table.addTableColumn(Self.makeColumn(id: "status", title: "Status", min: 140, width: 160))
         table.addTableColumn(Self.makeColumn(id: "date", title: "Plan date", min: 120, width: 140))
         table.addTableColumn(Self.makeColumn(id: "budget", title: "Budget", min: 100, width: 120))
         if showHidden {
@@ -132,9 +134,11 @@ private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDel
             let clipView = table.enclosingScrollView?.contentView
             let preservedOrigin = clipView?.documentVisibleRect.origin
             table.reloadData()
-            if let clipView, let preservedOrigin, viewModel.tableFocusRequest?.token == lastFocusToken {
+            if let clipView, let preservedOrigin, viewModel.tableFocusRequest?.token == lastFocusToken,
+                let scrollView = table.enclosingScrollView
+            {
                 clipView.scroll(to: preservedOrigin)
-                table.reflectScrolledClipView(clipView)
+                scrollView.reflectScrolledClipView(clipView)
             }
             lastRenderedRows = rows
         }
@@ -177,8 +181,20 @@ private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDel
         guard row < rows.count else { return nil }
         let rowModel = rows[row]
         let colId = tableColumn?.identifier.rawValue ?? "text"
-        let reuseId = NSUserInterfaceItemIdentifier("swiftui.\(colId)")
+        if colId == "status" {
+            let reuseId = NSUserInterfaceItemIdentifier("appkit.status")
+            let cell: StatusPopupTableCellView
+            if let existing = tableView.makeView(withIdentifier: reuseId, owner: nil) as? StatusPopupTableCellView {
+                cell = existing
+            } else {
+                cell = StatusPopupTableCellView()
+                cell.identifier = reuseId
+            }
+            cell.configure(nodeID: rowModel.node.id, viewModel: viewModel)
+            return cell
+        }
 
+        let reuseId = NSUserInterfaceItemIdentifier("swiftui.\(colId)")
         let cell: HostingTableCellView
         if let existing = tableView.makeView(withIdentifier: reuseId, owner: nil) as? HostingTableCellView {
             cell = existing
@@ -194,10 +210,6 @@ private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDel
         switch colId {
         case "text":
             cell.setRoot(padded(AnyView(NodeTableTextField(nodeID: rowModel.node.id, viewModel: viewModel))))
-        case "color":
-            cell.setRoot(
-                padded(AnyView(NodeTableColorMenu(nodeID: rowModel.node.id, viewModel: viewModel, colorDot: NodesTableColorDot.image)))
-            )
         case "date":
             cell.setRoot(padded(AnyView(NodeTablePlannedDateCell(nodeID: rowModel.node.id, viewModel: viewModel))))
         case "budget":
@@ -235,9 +247,14 @@ private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDel
             viewModel.clearSelection()
         }
     }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        // Compact fixed height (automatic row heights were disabled for stability).
+        44
+    }
 }
 
-private enum NodesTableColorDot {
+private enum NodesTableStatusDot {
     static func image(hex: String) -> NSImage {
         let size = NSSize(width: 14, height: 14)
         let image = NSImage(size: size, flipped: false) { rect in
@@ -274,6 +291,115 @@ private final class HostingTableCellView: NSTableCellView {
 
     func setRoot(_ view: AnyView) {
         hosting.rootView = view
+    }
+}
+
+@MainActor
+private final class StatusPopupTableCellView: NSView {
+    private enum MenuTag {
+        static let none = -1
+        static let settings = -2
+    }
+
+    private let popupButton = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var nodeID: UUID?
+    private weak var viewModel: DominoViewModel?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        popupButton.controlSize = .small
+        popupButton.lineBreakMode = .byTruncatingTail
+        popupButton.target = self
+        popupButton.action = #selector(handleSelectionChanged(_:))
+        addSubview(popupButton)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(nodeID: UUID, viewModel: DominoViewModel) {
+        self.nodeID = nodeID
+        self.viewModel = viewModel
+        rebuildMenu()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        popupButton.frame = bounds.insetBy(dx: 4, dy: 4)
+    }
+
+    private func rebuildMenu() {
+        guard let viewModel, let nodeID else { return }
+
+        popupButton.removeAllItems()
+
+        let noneItem = NSMenuItem(title: "None", action: nil, keyEquivalent: "")
+        noneItem.tag = MenuTag.none
+        noneItem.image = NSImage(systemSymbolName: "circle.slash", accessibilityDescription: nil)
+        popupButton.menu?.addItem(noneItem)
+
+        for status in viewModel.activeStatusSettings.selectableStatuses {
+            let item = NSMenuItem(title: status.name, action: nil, keyEquivalent: "")
+            item.representedObject = status.id.uuidString
+            if let hex = status.colorHex {
+                item.image = NodesTableStatusDot.image(hex: hex)
+            }
+            popupButton.menu?.addItem(item)
+        }
+
+        popupButton.menu?.addItem(.separator())
+
+        let settingsItem = NSMenuItem(title: "Customized Statuses...", action: nil, keyEquivalent: "")
+        settingsItem.tag = MenuTag.settings
+        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+        popupButton.menu?.addItem(settingsItem)
+
+        let currentStatus = viewModel.statusDefinition(for: viewModel.nodes[nodeID]?.statusID)
+        if currentStatus.id == DominoStatusSettings.noneStatusID {
+            popupButton.selectItem(withTag: MenuTag.none)
+        } else {
+            let selectedIndex = popupButton.itemArray.firstIndex {
+                ($0.representedObject as? String) == currentStatus.id.uuidString
+            }
+            if let selectedIndex {
+                popupButton.selectItem(at: selectedIndex)
+            } else {
+                popupButton.selectItem(withTag: MenuTag.none)
+            }
+        }
+    }
+
+    @objc private func handleSelectionChanged(_ sender: NSPopUpButton) {
+        guard let viewModel, let nodeID, let selectedItem = sender.selectedItem else { return }
+
+        switch selectedItem.tag {
+        case MenuTag.settings:
+            DispatchQueue.main.async { [weak self] in
+                self?.rebuildMenu()
+                viewModel.openSettingsWindow()
+            }
+        case MenuTag.none:
+            DispatchQueue.main.async {
+                viewModel.setNodeStatus(nodeID, statusID: nil)
+            }
+        default:
+            guard
+                let rawStatusID = selectedItem.representedObject as? String,
+                let statusID = UUID(uuidString: rawStatusID)
+            else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.rebuildMenu()
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                viewModel.setNodeStatus(nodeID, statusID: statusID)
+            }
+        }
     }
 }
 
@@ -333,132 +459,6 @@ private struct NodeTableTextField: View {
 
     private func commit() {
         viewModel.commitNodeTextIfChanged(nodeID, text: text)
-    }
-}
-
-// MARK: - Color
-
-/// Bitmap swatch for the menu label. SwiftUI `Menu` labels inside table rows are often rendered as
-/// monochrome template content, which washes out `Shape` fills; AppKit drawing preserves true color.
-private enum ColorSwatchLabelImage {
-    static let pixelSize = NSSize(width: 88, height: 26)
-
-    static func make(hex: String?) -> NSImage {
-        let image = NSImage(size: pixelSize, flipped: false) { bounds in
-            let rect = bounds.insetBy(dx: 1, dy: 1)
-            let corner: CGFloat = 6
-            let rounded = NSBezierPath(roundedRect: rect, xRadius: corner, yRadius: corner)
-
-            let trimmed = hex?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty {
-                let fill = NSColor(Color(hex: trimmed)).usingColorSpace(.sRGB) ?? .systemGray
-                fill.setFill()
-                rounded.fill()
-                NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
-                rounded.lineWidth = 1
-                rounded.stroke()
-
-                if let preset = NodeColorPresets.preset(matchingStoredHex: trimmed) {
-                    let text = preset.name as NSString
-                    let lum =
-                        0.2126 * fill.redComponent + 0.7152 * fill.greenComponent
-                        + 0.0722 * fill.blueComponent
-                    let labelColor =
-                        lum > 0.55
-                        ? NSColor.black.withAlphaComponent(0.88)
-                        : NSColor.white.withAlphaComponent(0.95)
-                    let attrs: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                        .foregroundColor: labelColor,
-                    ]
-                    let ts = text.size(withAttributes: attrs)
-                    let origin = CGPoint(x: bounds.midX - ts.width / 2, y: bounds.midY - ts.height / 2)
-                    text.draw(at: origin, withAttributes: attrs)
-                }
-            } else {
-                NSColor.separatorColor.withAlphaComponent(0.45).setStroke()
-                rounded.lineWidth = 1
-                let dashes: [CGFloat] = [4, 3]
-                rounded.setLineDash(dashes, count: dashes.count, phase: 0)
-                rounded.stroke()
-
-                let text = "None" as NSString
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                    .foregroundColor: NSColor.secondaryLabelColor,
-                ]
-                let ts = text.size(withAttributes: attrs)
-                let origin = CGPoint(x: bounds.midX - ts.width / 2, y: bounds.midY - ts.height / 2)
-                text.draw(at: origin, withAttributes: attrs)
-            }
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
-}
-
-private struct NodeTableColorMenu: View {
-    let nodeID: UUID
-    @ObservedObject var viewModel: DominoViewModel
-    let colorDot: (String) -> NSImage
-
-    private var hex: String? {
-        viewModel.nodes[nodeID]?.colorHex
-    }
-
-    private var menuBaseColor: Color {
-        guard let hex else { return .white }
-        return Color(hex: hex)
-    }
-
-    var body: some View {
-        Menu {
-            Button("None") {
-                viewModel.setNodeColor(nodeID, hex: nil)
-            }
-            ForEach(NodeColorPresets.presets, id: \.hex) { preset in
-                Button {
-                    viewModel.setNodeColor(nodeID, hex: preset.hex)
-                } label: {
-                    Label {
-                        Text(preset.name)
-                    } icon: {
-                        Image(nsImage: colorDot(preset.hex))
-                    }
-                }
-            }
-            Divider()
-            Button("Custom…") {
-                let vm = viewModel
-                let id = nodeID
-                let panel = NSColorPanel.shared
-                panel.setTarget(nil)
-                panel.setAction(nil)
-                panel.color = NSColor(menuBaseColor)
-                panel.orderFront(nil)
-                ColorPanelObserver.shared.observe(panel: panel) { nsColor in
-                    vm.setNodeColor(id, hex: Color(nsColor: nsColor).toHex())
-                }
-            }
-        } label: {
-            Image(nsImage: ColorSwatchLabelImage.make(hex: hex))
-                .interpolation(.high)
-                .frame(width: ColorSwatchLabelImage.pixelSize.width, height: ColorSwatchLabelImage.pixelSize.height)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .menuStyle(.borderlessButton)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var accessibilityLabel: String {
-        guard let hex, !hex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "Color: none"
-        }
-        if let preset = NodeColorPresets.preset(matchingStoredHex: hex) {
-            return "Color: \(preset.name)"
-        }
-        return "Color: custom"
     }
 }
 

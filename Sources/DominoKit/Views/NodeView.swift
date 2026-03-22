@@ -32,19 +32,17 @@ struct NodeView: View {
         isSelected
     }
 
+    private var status: DominoStatusDefinition {
+        viewModel.statusDefinition(for: node.statusID)
+    }
+
     private var nodeColor: Color? {
-        guard let hex = node.colorHex else { return nil }
+        guard let hex = status.colorHex else { return nil }
         return Color(hex: hex)
     }
 
     private var contextMenuTargetNodeIDs: Set<UUID> {
         viewModel.contextMenuTargetNodeIDs(for: node.id)
-    }
-
-    private var hasColorInContextMenuTargets: Bool {
-        contextMenuTargetNodeIDs.contains { id in
-            viewModel.nodes[id]?.colorHex != nil
-        }
     }
 
     private var areContextMenuTargetsHidden: Bool {
@@ -115,6 +113,13 @@ struct NodeView: View {
         return image
     }
 
+    private static func statusMenuIcon(for status: DominoStatusDefinition) -> Image {
+        if let hex = status.colorHex {
+            return Image(nsImage: colorDot(hex: hex))
+        }
+        return Image(systemName: "circle.slash")
+    }
+
     var body: some View {
         ZStack {
             nodeBody
@@ -148,42 +153,33 @@ struct NodeView: View {
                 }
                 .contextMenu {
                     Menu {
-                        ForEach(NodeColorPresets.presets, id: \.hex) { preset in
+                        Button {
+                            viewModel.setNodeStatuses(contextMenuTargetNodeIDs, statusID: nil)
+                        } label: {
+                            Label("None", systemImage: "circle.slash")
+                        }
+
+                        ForEach(viewModel.activeStatusSettings.selectableStatuses) { status in
                             Button {
-                                viewModel.setNodeColors(contextMenuTargetNodeIDs, hex: preset.hex)
+                                viewModel.setNodeStatuses(contextMenuTargetNodeIDs, statusID: status.id)
                             } label: {
                                 Label {
-                                    Text(preset.name)
+                                    Text(status.name)
                                 } icon: {
-                                    Image(nsImage: Self.colorDot(hex: preset.hex))
+                                    Self.statusMenuIcon(for: status)
                                 }
                             }
                         }
+
                         Divider()
+
                         Button {
-                            let nodeIDs = contextMenuTargetNodeIDs
-                            let vm = viewModel
-                            let panel = NSColorPanel.shared
-                            panel.setTarget(nil)
-                            panel.setAction(nil)
-                            panel.color = NSColor(nodeColor ?? .white)
-                            panel.orderFront(nil)
-                            ColorPanelObserver.shared.observe(panel: panel) { nsColor in
-                                vm.setNodeColors(nodeIDs, hex: Color(nsColor: nsColor).toHex())
-                            }
+                            viewModel.openSettingsWindow()
                         } label: {
-                            Label("Custom…", systemImage: "eyedropper")
-                        }
-                        if hasColorInContextMenuTargets {
-                            Divider()
-                            Button {
-                                viewModel.setNodeColors(contextMenuTargetNodeIDs, hex: nil)
-                            } label: {
-                                Label("Remove Color", systemImage: "xmark.circle")
-                            }
+                            Label("Customized Statuses...", systemImage: "gearshape")
                         }
                     } label: {
-                        Label("Set Color", systemImage: "paintpalette")
+                        Label("Set Status", systemImage: "flag")
                     }
 
                     if contextMenuTargetNodeIDs.count > 1 {

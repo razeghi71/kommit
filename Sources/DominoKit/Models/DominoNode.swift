@@ -9,7 +9,8 @@ struct DominoNode: Identifiable, Equatable, Codable {
     var text: String
     var position: CGPoint
     var parentIDs: Set<UUID>
-    var colorHex: String?
+    var statusID: UUID?
+    var legacyColorHex: String?
     var plannedDate: Date?
     var budget: Double?
     var isHidden: Bool
@@ -19,7 +20,8 @@ struct DominoNode: Identifiable, Equatable, Codable {
         text: String = "",
         position: CGPoint,
         parentIDs: Set<UUID> = [],
-        colorHex: String? = nil,
+        statusID: UUID? = nil,
+        legacyColorHex: String? = nil,
         plannedDate: Date? = nil,
         budget: Double? = nil,
         isHidden: Bool = false
@@ -28,7 +30,8 @@ struct DominoNode: Identifiable, Equatable, Codable {
         self.text = text
         self.position = position
         self.parentIDs = parentIDs
-        self.colorHex = colorHex
+        self.statusID = statusID
+        self.legacyColorHex = legacyColorHex
         self.plannedDate = plannedDate
         self.budget = budget
         self.isHidden = isHidden
@@ -39,7 +42,8 @@ struct DominoNode: Identifiable, Equatable, Codable {
         case text
         case position
         case parentIDs
-        case colorHex
+        case statusID
+        case legacyColorHex = "colorHex"
         case plannedDate
         case budget
         case isHidden
@@ -51,9 +55,22 @@ struct DominoNode: Identifiable, Equatable, Codable {
         text = try container.decode(String.self, forKey: .text)
         position = try container.decode(CGPoint.self, forKey: .position)
         parentIDs = try container.decode(Set<UUID>.self, forKey: .parentIDs)
-        colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex)
+        statusID = try container.decodeIfPresent(UUID.self, forKey: .statusID)
+        legacyColorHex = try container.decodeIfPresent(String.self, forKey: .legacyColorHex)
         plannedDate = try container.decodeIfPresent(Date.self, forKey: .plannedDate)
         budget = try container.decodeIfPresent(Double.self, forKey: .budget)
         isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(text, forKey: .text)
+        try container.encode(position, forKey: .position)
+        try container.encode(parentIDs, forKey: .parentIDs)
+        try container.encodeIfPresent(statusID, forKey: .statusID)
+        try container.encodeIfPresent(plannedDate, forKey: .plannedDate)
+        try container.encodeIfPresent(budget, forKey: .budget)
+        try container.encode(isHidden, forKey: .isHidden)
     }
 }

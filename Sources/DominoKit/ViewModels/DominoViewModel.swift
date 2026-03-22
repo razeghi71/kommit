@@ -81,21 +81,23 @@ struct DominoTableRow: Identifiable, Equatable {
 }
 
 @MainActor
-final class DominoViewModel: ObservableObject {
+package final class DominoViewModel: ObservableObject {
     @Published var nodes: [UUID: DominoNode] = [:]
-    @Published var editingNodeID: UUID?
-    @Published var selectedNodeID: UUID?
-    @Published var selectedNodeIDs: Set<UUID> = []
+    @Published var systemStatusSettings: DominoStatusSettings
+    @Published var fileStatusSettings: DominoStatusSettings?
+    @Published package var editingNodeID: UUID?
+    @Published package var selectedNodeID: UUID?
+    @Published package var selectedNodeIDs: Set<UUID> = []
     @Published var edgeDrag: EdgeDragState?
     @Published var dropTargetNodeID: UUID?
-    @Published var selectedEdgeID: String?
+    @Published package var selectedEdgeID: String?
     @Published var nodeDragOffset: [UUID: CGSize] = [:]
     @Published var nodeSizes: [UUID: CGSize] = [:]
     @Published var currentFileURL: URL?
     @Published var fileLoadID: UUID = UUID()
     @Published var activeGuides: [SnapGuide] = []
     @Published var canvasScale: CGFloat = 1.0
-    @Published var showHiddenItems = false
+    @Published package var showHiddenItems = false
     @Published var canvasFocusRequest: NodeFocusRequest?
     @Published var tableFocusRequest: NodeFocusRequest?
     @Published var searchPresentationRequest: SearchPresentationRequest?
@@ -103,14 +105,30 @@ final class DominoViewModel: ObservableObject {
     @Published private(set) var canvasRecenterToken: UInt64 = 0
 
     private var lastAppliedCanvasRecenterToken: UInt64 = 0
+    private let userDefaults = UserDefaults.standard
+    private let systemStatusSettingsKey = "domino.systemStatusSettings"
 
     private var undoStack: [[UUID: DominoNode]] = []
     private var redoStack: [[UUID: DominoNode]] = []
     private let maxUndoLevels = 50
-    private(set) var isDirty = false
+    package private(set) var isDirty = false
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
+    package var canUndo: Bool { !undoStack.isEmpty }
+    package var canRedo: Bool { !redoStack.isEmpty }
+    var activeStatusSettings: DominoStatusSettings { fileStatusSettings ?? systemStatusSettings }
+    var hasFileStatusSettings: Bool { fileStatusSettings != nil }
+
+    /// Set from the main SwiftUI window (`ContentView`). AppKit-hosted cells (table rows) do not receive
+    /// `EnvironmentValues.openWindow`, so they must call this instead of `@Environment(\.openWindow)`.
+    var openSettingsWindowAction: (() -> Void)?
+
+    func openSettingsWindow() {
+        openSettingsWindowAction?()
+    }
+
+    package init() {
+        systemStatusSettings = DominoViewModel.loadSystemStatusSettings(from: UserDefaults.standard, key: "domino.systemStatusSettings")
+    }
 
     private func saveSnapshot() {
         undoStack.append(nodes)
@@ -121,7 +139,7 @@ final class DominoViewModel: ObservableObject {
         isDirty = true
     }
 
-    func undo() {
+    package func undo() {
         guard let snapshot = undoStack.popLast() else { return }
         redoStack.append(nodes)
         nodes = snapshot
@@ -130,7 +148,7 @@ final class DominoViewModel: ObservableObject {
         selectedNodeIDs.removeAll()
     }
 
-    func redo() {
+    package func redo() {
         guard let snapshot = redoStack.popLast() else { return }
         undoStack.append(nodes)
         nodes = snapshot
@@ -353,16 +371,18 @@ final class DominoViewModel: ObservableObject {
         nodes[id]?.position = position
     }
 
-    func setNodeColor(_ id: UUID, hex: String?) {
+    func setNodeStatus(_ id: UUID, statusID: UUID?) {
         saveSnapshot()
-        nodes[id]?.colorHex = hex
+        nodes[id]?.statusID = normalizedStatusID(statusID, settings: activeStatusSettings)
+        nodes[id]?.legacyColorHex = nil
     }
 
-    func setNodeColors(_ ids: Set<UUID>, hex: String?) {
+    func setNodeStatuses(_ ids: Set<UUID>, statusID: UUID?) {
         guard !ids.isEmpty else { return }
         saveSnapshot()
         for id in ids {
-            nodes[id]?.colorHex = hex
+            nodes[id]?.statusID = normalizedStatusID(statusID, settings: activeStatusSettings)
+            nodes[id]?.legacyColorHex = nil
         }
     }
 
@@ -476,9 +496,203 @@ final class DominoViewModel: ObservableObject {
         pruneSelectionForHiddenItems()
     }
 
-    func setShowHiddenItems(_ show: Bool) {
+    package func setShowHiddenItems(_ show: Bool) {
         showHiddenItems = show
         pruneSelectionForHiddenItems()
+    }
+
+    func statusDefinition(for statusID: UUID?) -> DominoStatusDefinition {
+        activeStatusSettings.definition(for: statusID)
+    }
+
+    func addFileStatusSettings() {
+        guard fileStatusSettings == nil else { return }
+        fileStatusSettings = systemStatusSettings
+        clearInvalidNodeStatusesForActiveSettings()
+        isDirty = true
+    }
+
+    func removeFileStatusSettings() {
+        guard fileStatusSettings != nil else { return }
+        fileStatusSettings = nil
+        clearInvalidNodeStatusesForActiveSettings()
+        isDirty = true
+    }
+
+    func addStatus(forFileSettings: Bool) {
+        mutateStatusSettings(forFileSettings: forFileSettings) { settings in
+            settings.statusPalette.append(
+                DominoStatusDefinition(
+                    id: UUID(),
+                    name: settings.nextStatusName(),
+                    colorHex: settings.nextStatusColorHex()
+                )
+            )
+        }
+    }
+
+    func updateStatusName(_ id: UUID, name: String, forFileSettings: Bool) {
+        mutateStatusSettings(forFileSettings: forFileSettings) { settings in
+            guard let index = settings.statusPalette.firstIndex(where: { $0.id == id }) else { return }
+            settings.statusPalette[index].name = name
+        }
+    }
+
+    func updateStatusColor(_ id: UUID, colorHex: String, forFileSettings: Bool) {
+        guard id != DominoStatusSettings.noneStatusID else { return }
+        mutateStatusSettings(forFileSettings: forFileSettings) { settings in
+            guard let index = settings.statusPalette.firstIndex(where: { $0.id == id }) else { return }
+            settings.statusPalette[index].colorHex = colorHex
+        }
+    }
+
+    func removeStatus(_ id: UUID, forFileSettings: Bool) {
+        guard canRemoveStatus(id) else { return }
+        mutateStatusSettings(forFileSettings: forFileSettings) { settings in
+            settings.statusPalette.removeAll { $0.id == id }
+        }
+    }
+
+    func canRemoveStatus(_ id: UUID) -> Bool {
+        id != DominoStatusSettings.noneStatusID
+    }
+
+    private func mutateStatusSettings(forFileSettings: Bool, update: (inout DominoStatusSettings) -> Void) {
+        var settings = forFileSettings ? (fileStatusSettings ?? systemStatusSettings) : systemStatusSettings
+        update(&settings)
+        settings = DominoStatusSettings(statusPalette: settings.statusPalette)
+
+        if forFileSettings {
+            fileStatusSettings = settings
+            isDirty = true
+        } else {
+            systemStatusSettings = settings
+            persistSystemStatusSettings()
+        }
+
+        clearInvalidNodeStatusesForActiveSettings()
+    }
+
+    private func normalizedStatusID(_ statusID: UUID?, settings: DominoStatusSettings) -> UUID? {
+        guard let statusID else { return nil }
+        guard statusID != DominoStatusSettings.noneStatusID else { return nil }
+        return settings.containsStatus(statusID) ? statusID : nil
+    }
+
+    private func clearInvalidNodeStatusesForActiveSettings() {
+        let validIDs = Set(activeStatusSettings.statusPalette.map(\.id))
+        for id in nodes.keys {
+            guard let statusID = nodes[id]?.statusID else {
+                nodes[id]?.legacyColorHex = nil
+                continue
+            }
+            if !validIDs.contains(statusID) || statusID == DominoStatusSettings.noneStatusID {
+                nodes[id]?.statusID = nil
+            }
+            nodes[id]?.legacyColorHex = nil
+        }
+    }
+
+    private static func loadSystemStatusSettings(from defaults: UserDefaults, key: String) -> DominoStatusSettings {
+        guard let data = defaults.data(forKey: key),
+            let decoded = try? JSONDecoder().decode(DominoStatusSettings.self, from: data)
+        else {
+            return .defaultValue
+        }
+        return decoded
+    }
+
+    private func persistSystemStatusSettings() {
+        guard let data = try? JSONEncoder().encode(systemStatusSettings) else { return }
+        userDefaults.set(data, forKey: systemStatusSettingsKey)
+    }
+
+    private struct DecodedBoard {
+        let nodes: [DominoNode]
+        let fileStatusSettings: DominoStatusSettings?
+    }
+
+    private struct MigratedNodes {
+        let nodes: [DominoNode]
+        let fileStatusSettings: DominoStatusSettings?
+    }
+
+    private func decodeBoard(from data: Data) -> DecodedBoard? {
+        let decoder = JSONDecoder()
+
+        if let document = try? decoder.decode(DominoDocument.self, from: data) {
+            let explicitFileSettings = document.settings.map { DominoStatusSettings(statusPalette: $0.statusPalette) }
+            let migrated = migrateLoadedNodes(document.nodes, baseSettings: explicitFileSettings ?? systemStatusSettings)
+            return DecodedBoard(
+                nodes: migrated.nodes,
+                fileStatusSettings: migrated.fileStatusSettings ?? explicitFileSettings
+            )
+        }
+
+        guard let legacyNodes = try? decoder.decode([DominoNode].self, from: data) else { return nil }
+        let migrated = migrateLoadedNodes(legacyNodes, baseSettings: systemStatusSettings)
+        return DecodedBoard(nodes: migrated.nodes, fileStatusSettings: migrated.fileStatusSettings)
+    }
+
+    private func migrateLoadedNodes(_ loadedNodes: [DominoNode], baseSettings: DominoStatusSettings) -> MigratedNodes {
+        var migratedNodes: [DominoNode] = []
+        migratedNodes.reserveCapacity(loadedNodes.count)
+
+        var resolvedSettings = baseSettings
+        var customStatusesByHex: [String: UUID] = [:]
+        var createdFileSettings = false
+
+        for node in loadedNodes {
+            var updated = node
+            let legacyHex = DominoStatusSettings.normalizedHex(node.legacyColorHex)
+
+            if !legacyHex.isEmpty {
+                if let existingStatusID = resolvedSettings.matchingStatusID(forLegacyColorHex: legacyHex) {
+                    updated.statusID = normalizedStatusID(existingStatusID, settings: resolvedSettings)
+                } else {
+                    if let reusedStatusID = customStatusesByHex[legacyHex] {
+                        updated.statusID = reusedStatusID
+                    } else {
+                        createdFileSettings = true
+                        let newStatus = DominoStatusDefinition(
+                            id: UUID(),
+                            name: makeUniqueStatusName(
+                                baseName: DominoStatusSettings.legacyFallbackName(for: legacyHex),
+                                existingSettings: resolvedSettings
+                            ),
+                            colorHex: legacyHex
+                        )
+                        resolvedSettings.statusPalette.append(newStatus)
+                        resolvedSettings = DominoStatusSettings(statusPalette: resolvedSettings.statusPalette)
+                        customStatusesByHex[legacyHex] = newStatus.id
+                        updated.statusID = newStatus.id
+                    }
+                }
+            } else {
+                updated.statusID = normalizedStatusID(node.statusID, settings: resolvedSettings)
+            }
+
+            updated.legacyColorHex = nil
+            migratedNodes.append(updated)
+        }
+
+        return MigratedNodes(
+            nodes: migratedNodes,
+            fileStatusSettings: createdFileSettings ? resolvedSettings : nil
+        )
+    }
+
+    private func makeUniqueStatusName(baseName: String, existingSettings: DominoStatusSettings) -> String {
+        let existing = Set(existingSettings.statusPalette.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+        let trimmedBase = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmedBase.isEmpty ? "Custom Status" : trimmedBase
+        guard existing.contains(fallback.lowercased()) else { return fallback }
+
+        var suffix = 2
+        while existing.contains("\(fallback) \(suffix)".lowercased()) {
+            suffix += 1
+        }
+        return "\(fallback) \(suffix)"
     }
 
     func updateNodeText(_ id: UUID, text: String) {
@@ -492,7 +706,7 @@ final class DominoViewModel: ObservableObject {
         nodes[id]?.text = text
     }
 
-    func deleteNode(_ id: UUID) {
+    package func deleteNode(_ id: UUID) {
         saveSnapshot()
         // Reparent children: replace this node with its parents in each child's parentIDs
         let deletedParentIDs = nodes[id]?.parentIDs ?? []
@@ -541,7 +755,7 @@ final class DominoViewModel: ObservableObject {
         return true
     }
 
-    func clearSelection() {
+    package func clearSelection() {
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
         selectedEdgeID = nil
@@ -560,7 +774,7 @@ final class DominoViewModel: ObservableObject {
         canvasFocusRequest = NodeFocusRequest(nodeID: id)
     }
 
-    func requestCanvasRecenter() {
+    package func requestCanvasRecenter() {
         canvasRecenterToken &+= 1
     }
 
@@ -587,7 +801,7 @@ final class DominoViewModel: ObservableObject {
         return node.id
     }
 
-    func presentSearch() {
+    package func presentSearch() {
         searchPresentationRequest = SearchPresentationRequest()
     }
 
@@ -650,14 +864,14 @@ final class DominoViewModel: ObservableObject {
         }
     }
 
-    func deleteSelectedNode() {
+    package func deleteSelectedNode() {
         guard let id = selectedNodeID else { return }
         selectedNodeID = nil
         selectedNodeIDs.remove(id)
         deleteNode(id)
     }
 
-    func deleteSelectedEdge() {
+    package func deleteSelectedEdge() {
         guard let edgeID = selectedEdgeID else { return }
         let parts = edgeID.split(separator: ">")
         guard parts.count == 2,
@@ -671,7 +885,7 @@ final class DominoViewModel: ObservableObject {
 
     // MARK: - Unsaved changes guard
 
-    func confirmDiscardIfNeeded(then action: @escaping () -> Void) {
+    package func confirmDiscardIfNeeded(then action: @escaping () -> Void) {
         guard isDirty else {
             action()
             return
@@ -681,7 +895,7 @@ final class DominoViewModel: ObservableObject {
         }
     }
 
-    static func showDiscardAlert() -> Bool {
+    package static func showDiscardAlert() -> Bool {
         let alert = NSAlert()
         alert.messageText = "You have unsaved changes"
         alert.informativeText = "Do you want to discard your current board?"
@@ -693,8 +907,9 @@ final class DominoViewModel: ObservableObject {
 
     // MARK: - New / Save / Open
 
-    func newBoard() {
+    package func newBoard() {
         nodes.removeAll()
+        fileStatusSettings = nil
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -706,7 +921,7 @@ final class DominoViewModel: ObservableObject {
         fileLoadID = UUID()
     }
 
-    func save() {
+    package func save() {
         if let url = currentFileURL {
             writeToFile(url)
         } else {
@@ -714,7 +929,7 @@ final class DominoViewModel: ObservableObject {
         }
     }
 
-    func saveAs() {
+    package func saveAs() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "Domino.json"
@@ -723,7 +938,7 @@ final class DominoViewModel: ObservableObject {
         writeToFile(url)
     }
 
-    func open() {
+    package func open() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
@@ -734,17 +949,25 @@ final class DominoViewModel: ObservableObject {
     private func writeToFile(_ url: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
-        guard let data = try? encoder.encode(Array(nodes.values)) else { return }
+        let document = DominoDocument(
+            nodes: sortedNodes,
+            settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings
+        )
+        guard let data = try? encoder.encode(document) else { return }
         try? data.write(to: url)
         isDirty = false
     }
 
     private func readFromFile(_ url: URL) {
         guard let data = try? Data(contentsOf: url),
-            let loaded = try? JSONDecoder().decode([DominoNode].self, from: data)
+            let loaded = decodeBoard(from: data)
         else { return }
-        nodes = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
+        nodes = Dictionary(uniqueKeysWithValues: loaded.nodes.map { ($0.id, $0) })
+        fileStatusSettings = loaded.fileStatusSettings
         editingNodeID = nil
+        selectedNodeID = nil
+        selectedNodeIDs.removeAll()
+        selectedEdgeID = nil
         currentFileURL = url
         isDirty = false
         fileLoadID = UUID()
