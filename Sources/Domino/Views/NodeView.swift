@@ -77,6 +77,14 @@ struct NodeView: View {
         return (nodeColor ?? .white).opacity(0.08)
     }
 
+    private var selectionOutlineOverlay: some View {
+        RoundedRectangle(cornerRadius: cornerRadius + selectionOutlinePadding)
+            .stroke(Color.blue, lineWidth: 2)
+            .padding(-selectionOutlinePadding)
+            .opacity(showsSelectionOutline ? 1 : 0)
+            .allowsHitTesting(false)
+    }
+
     private var nodeSize: CGSize {
         viewModel.nodeSizes[node.id] ?? NodeDefaults.size
     }
@@ -270,98 +278,92 @@ struct NodeView: View {
     private var nodeBody: some View {
         Group {
             if isEditing {
-                TextField("Type here...", text: $editText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .medium))
-                    .multilineTextAlignment(.center)
-                    .focused($textFieldFocused)
-                    .frame(minWidth: minWidth)
-                    .fixedSize()
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(nodeColor?.opacity(0.15) ?? .white.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(nodeColor ?? Color.accentColor, lineWidth: 1.5)
-                    )
-                    .overlay {
-                        if showsSelectionOutline {
-                            RoundedRectangle(cornerRadius: cornerRadius + selectionOutlinePadding)
-                                .stroke(Color.blue, lineWidth: 2)
-                                .padding(-selectionOutlinePadding)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onChange(of: editText) { _, newValue in
-                        viewModel.updateNodeText(node.id, text: newValue)
-                    }
-                    .onSubmit {
-                        viewModel.commitEditing()
-                    }
-                    .onAppear {
-                        editText = node.text
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            textFieldFocused = true
-                        }
-                    }
+                editingNodeBody
             } else {
-                Text(node.text.isEmpty ? " " : node.text)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(borderColor)
-                    .frame(minWidth: minWidth)
-                    .fixedSize()
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(fillColor)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(borderStroke, style: borderStyle)
-                    )
-                    .overlay {
-                        if showsSelectionOutline {
-                            RoundedRectangle(cornerRadius: cornerRadius + selectionOutlinePadding)
-                                .stroke(Color.blue, lineWidth: 2)
-                                .padding(-selectionOutlinePadding)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onTapGesture(count: 1) {
-                        if NSEvent.modifierFlags.contains(.shift) {
-                            // Shift-click: toggle in multi-selection
-                            if viewModel.selectedNodeIDs.contains(node.id) {
-                                viewModel.selectedNodeIDs.remove(node.id)
-                                if viewModel.selectedNodeID == node.id {
-                                    viewModel.selectedNodeID = viewModel.selectedNodeIDs.first
-                                }
-                            } else {
-                                // If there's a single selected node, promote it to multi-selection
-                                if let existing = viewModel.selectedNodeID, viewModel.selectedNodeIDs.isEmpty {
-                                    viewModel.selectedNodeIDs.insert(existing)
-                                }
-                                viewModel.selectedNodeIDs.insert(node.id)
-                                viewModel.selectedNodeID = node.id
-                            }
-                            viewModel.selectedEdgeID = nil
-                        } else if isSelected && viewModel.selectedNodeIDs.count <= 1 {
-                            editText = node.text
-                            viewModel.selectedNodeID = nil
-                            viewModel.selectedNodeIDs.removeAll()
-                            viewModel.editingNodeID = node.id
-                        } else {
-                            viewModel.commitEditing()
-                            viewModel.selectedNodeID = node.id
-                            viewModel.selectedNodeIDs = [node.id]
-                            viewModel.selectedEdgeID = nil
-                        }
-                    }
+                displayNodeBody
             }
         }
+    }
+
+    private var editingNodeBody: some View {
+        TextField("Type here...", text: $editText)
+            .textFieldStyle(.plain)
+            .font(.system(size: 13, weight: .medium))
+            .multilineTextAlignment(.center)
+            .focused($textFieldFocused)
+            .frame(minWidth: minWidth)
+            .fixedSize()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(nodeColor?.opacity(0.15) ?? .white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(nodeColor ?? Color.accentColor, lineWidth: 1.5)
+            )
+            .overlay(selectionOutlineOverlay)
+            .onChange(of: editText) { _, newValue in
+                viewModel.updateNodeText(node.id, text: newValue)
+            }
+            .onSubmit {
+                viewModel.commitEditing()
+            }
+            .onAppear {
+                editText = node.text
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    textFieldFocused = true
+                }
+            }
+    }
+
+    private var displayNodeBody: some View {
+        Text(node.text.isEmpty ? " " : node.text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(borderColor)
+            .frame(minWidth: minWidth)
+            .fixedSize()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(fillColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(borderStroke, style: borderStyle)
+            )
+            .overlay(selectionOutlineOverlay)
+            .onTapGesture(count: 1) {
+                if NSEvent.modifierFlags.contains(.shift) {
+                    // Shift-click: toggle in multi-selection
+                    if viewModel.selectedNodeIDs.contains(node.id) {
+                        viewModel.selectedNodeIDs.remove(node.id)
+                        if viewModel.selectedNodeID == node.id {
+                            viewModel.selectedNodeID = viewModel.selectedNodeIDs.first
+                        }
+                    } else {
+                        // If there's a single selected node, promote it to multi-selection
+                        if let existing = viewModel.selectedNodeID, viewModel.selectedNodeIDs.isEmpty {
+                            viewModel.selectedNodeIDs.insert(existing)
+                        }
+                        viewModel.selectedNodeIDs.insert(node.id)
+                        viewModel.selectedNodeID = node.id
+                    }
+                    viewModel.selectedEdgeID = nil
+                } else if isSelected && viewModel.selectedNodeIDs.count <= 1 {
+                    editText = node.text
+                    viewModel.selectedNodeID = nil
+                    viewModel.selectedNodeIDs.removeAll()
+                    viewModel.editingNodeID = node.id
+                } else {
+                    viewModel.commitEditing()
+                    viewModel.selectedNodeID = node.id
+                    viewModel.selectedNodeIDs = [node.id]
+                    viewModel.selectedEdgeID = nil
+                }
+            }
     }
 
     @ViewBuilder
