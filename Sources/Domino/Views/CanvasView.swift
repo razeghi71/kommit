@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum CanvasRecenter {
+    /// Below this scale (too zoomed out) or above `maxScale` (too zoomed in), show the recenter control.
+    static let minComfortScale: CGFloat = 0.45
+    static let maxComfortScale: CGFloat = 2.75
+}
+
 struct CanvasView: View {
     @ObservedObject var viewModel: DominoViewModel
 
@@ -16,8 +22,15 @@ struct CanvasView: View {
             let totalOffset = panOffset
             let currentScale = scale * gestureScale
             let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let showRecenterAffordance = shouldShowRecenterAffordance(
+                viewportSize: geo.size,
+                viewportCenter: center,
+                offset: totalOffset,
+                scale: currentScale
+            )
 
-            ZStack {
+            ZStack(alignment: .topTrailing) {
+                ZStack {
                 // Background - drag to select, tap to deselect, double-click to create
                 AppColors.canvasBackgroundSwiftUI
                     .contentShape(Rectangle())
@@ -216,9 +229,43 @@ struct CanvasView: View {
                 ScrollWheelHandler(panOffset: $panOffset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
+                }
+
+                if showRecenterAffordance {
+                    Button {
+                        viewModel.requestCanvasRecenter()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .imageScale(.medium)
+                            Text("Recenter")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("⌘0")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
+                    .help("Recenter canvas and zoom (⌘0)")
+                    .padding(.top, 12)
+                    .padding(.trailing, 16)
+                }
             }
             .onAppear {
                 viewModel.canvasScale = currentScale
+                applyCanvasRecenterIfPending(viewportSize: geo.size)
             }
             .onChange(of: currentScale) { _, newScale in
                 viewModel.canvasScale = newScale
@@ -226,6 +273,9 @@ struct CanvasView: View {
             .onChange(of: viewModel.canvasFocusRequest) { _, request in
                 guard let request else { return }
                 centerOnNode(request.nodeID, viewportSize: geo.size)
+            }
+            .onChange(of: viewModel.canvasRecenterToken) { _, _ in
+                applyCanvasRecenterIfPending(viewportSize: geo.size)
             }
         }
         .simultaneousGesture(
@@ -270,6 +320,86 @@ struct CanvasView: View {
         panOffset = CGSize(
             width: viewportSize.width / 2 - node.position.x,
             height: viewportSize.height / 2 - node.position.y
+        )
+    }
+
+    private func applyCanvasRecenterIfPending(viewportSize: CGSize) {
+        guard viewModel.isCanvasRecenterPending else { return }
+        centerOnNodes(viewportSize: viewportSize)
+        viewModel.markCanvasRecenterApplied()
+    }
+
+    private func shouldShowRecenterAffordance(
+        viewportSize: CGSize,
+        viewportCenter: CGPoint,
+        offset: CGSize,
+        scale: CGFloat
+    ) -> Bool {
+        if viewModel.visibleNodes.isEmpty {
+            return true
+        }
+        if scale < CanvasRecenter.minComfortScale || scale > CanvasRecenter.maxComfortScale {
+            return true
+        }
+        return !viewportIntersectsAnyVisibleNode(
+            viewportSize: viewportSize,
+            viewportCenter: viewportCenter,
+            offset: offset,
+            scale: scale
+        )
+    }
+
+    private func viewportIntersectsAnyVisibleNode(
+        viewportSize: CGSize,
+        viewportCenter: CGPoint,
+        offset: CGSize,
+        scale: CGFloat
+    ) -> Bool {
+        let viewportBounds = CGRect(origin: .zero, size: viewportSize)
+        for node in viewModel.visibleNodes {
+            let size = viewModel.nodeSizes[node.id] ?? NodeDefaults.size
+            let halfW = size.width / 2
+            let halfH = size.height / 2
+            let canvasRect = CGRect(
+                x: node.position.x - halfW,
+                y: node.position.y - halfH,
+                width: size.width,
+                height: size.height
+            )
+            let screenRect = canvasBoundsToViewportRect(
+                canvasRect: canvasRect,
+                viewportCenter: viewportCenter,
+                offset: offset,
+                scale: scale
+            )
+            if screenRect.intersects(viewportBounds) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Canvas-space bounds mapped into view coordinates (same transform as scaled canvas content).
+    private func canvasBoundsToViewportRect(
+        canvasRect: CGRect,
+        viewportCenter: CGPoint,
+        offset: CGSize,
+        scale: CGFloat
+    ) -> CGRect {
+        let c = viewportCenter
+        func toScreen(_ p: CGPoint) -> CGPoint {
+            CGPoint(
+                x: (p.x - c.x) * scale + c.x + offset.width,
+                y: (p.y - c.y) * scale + c.y + offset.height
+            )
+        }
+        let pMin = toScreen(CGPoint(x: canvasRect.minX, y: canvasRect.minY))
+        let pMax = toScreen(CGPoint(x: canvasRect.maxX, y: canvasRect.maxY))
+        return CGRect(
+            x: min(pMin.x, pMax.x),
+            y: min(pMin.y, pMax.y),
+            width: abs(pMax.x - pMin.x),
+            height: abs(pMax.y - pMin.y)
         )
     }
 

@@ -87,6 +87,10 @@ final class DominoViewModel: ObservableObject {
     @Published var canvasFocusRequest: NodeFocusRequest?
     @Published var tableFocusRequest: NodeFocusRequest?
     @Published var searchPresentationRequest: SearchPresentationRequest?
+    /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
+    @Published private(set) var canvasRecenterToken: UInt64 = 0
+
+    private var lastAppliedCanvasRecenterToken: UInt64 = 0
 
     private var undoStack: [[UUID: DominoNode]] = []
     private var redoStack: [[UUID: DominoNode]] = []
@@ -377,6 +381,18 @@ final class DominoViewModel: ObservableObject {
     func requestCanvasFocus(on id: UUID) {
         guard isNodeVisible(id) else { return }
         canvasFocusRequest = NodeFocusRequest(nodeID: id)
+    }
+
+    func requestCanvasRecenter() {
+        canvasRecenterToken &+= 1
+    }
+
+    var isCanvasRecenterPending: Bool {
+        canvasRecenterToken != lastAppliedCanvasRecenterToken
+    }
+
+    func markCanvasRecenterApplied() {
+        lastAppliedCanvasRecenterToken = canvasRecenterToken
     }
 
     func requestTableFocus(on id: UUID) {

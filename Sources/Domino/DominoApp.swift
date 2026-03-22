@@ -67,6 +67,12 @@ struct DominoApp: App {
                 }
                 .keyboardShortcut("f", modifiers: .command)
 
+                Button("Recenter Canvas") {
+                    viewModel.requestCanvasRecenter()
+                }
+                // ⌘C is reserved for Edit › Copy; a duplicate key equivalent does not show in the menu.
+                .keyboardShortcut("0", modifiers: .command)
+
                 Toggle("Show Node Ranks", isOn: $showNodeRanks)
                 Toggle(
                     "Show Hidden Items",
