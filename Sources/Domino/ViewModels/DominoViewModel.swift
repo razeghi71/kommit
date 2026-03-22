@@ -73,6 +73,13 @@ struct SearchPresentationRequest: Equatable {
     let token = UUID()
 }
 
+/// One row in the table view: live `node` snapshot plus a stripe group for alternating backgrounds by connected component.
+struct DominoTableRow: Identifiable, Equatable {
+    let id: UUID
+    let node: DominoNode
+    let stripeGroupIndex: Int
+}
+
 @MainActor
 final class DominoViewModel: ObservableObject {
     @Published var nodes: [UUID: DominoNode] = [:]
@@ -138,6 +145,94 @@ final class DominoViewModel: ObservableObject {
 
     var visibleNodes: [DominoNode] {
         sortedNodes.filter { showHiddenItems || !$0.isHidden }
+    }
+
+    /// Table order: repeated “topmost rank‑0 root in what’s left” → whole undirected connected component, nodes sorted by visible rank then canvas position.
+    var tableRows: [DominoTableRow] {
+        let visible = visibleNodes
+        let visibleIDs = Set(visible.map(\.id))
+        guard !visibleIDs.isEmpty else { return [] }
+
+        let ranks = nodeDegrees
+        var children: [UUID: [UUID]] = [:]
+        for id in visibleIDs {
+            guard let node = nodes[id] else { continue }
+            for pid in node.parentIDs where visibleIDs.contains(pid) {
+                children[pid, default: []].append(id)
+            }
+        }
+
+        func neighbors(of id: UUID) -> [UUID] {
+            var n = Set<UUID>()
+            n.formUnion(children[id] ?? [])
+            if let node = nodes[id] {
+                for pid in node.parentIDs where visibleIDs.contains(pid) {
+                    n.insert(pid)
+                }
+            }
+            return Array(n)
+        }
+
+        func component(startingAt start: UUID) -> Set<UUID> {
+            var stack: [UUID] = [start]
+            var seen = Set<UUID>()
+            while let v = stack.popLast() {
+                if seen.contains(v) { continue }
+                seen.insert(v)
+                for u in neighbors(of: v) {
+                    if !seen.contains(u) { stack.append(u) }
+                }
+            }
+            return seen
+        }
+
+        func topLeftFirst(_ a: UUID, _ b: UUID) -> Bool {
+            let pa = effectivePosition(a)
+            let pb = effectivePosition(b)
+            if pa.y != pb.y { return pa.y < pb.y }
+            if pa.x != pb.x { return pa.x < pb.x }
+            return a.uuidString < b.uuidString
+        }
+
+        func rankSortFirst(_ a: UUID, _ b: UUID) -> Bool {
+            let ra = ranks[a] ?? Int.max
+            let rb = ranks[b] ?? Int.max
+            if ra != rb { return ra < rb }
+            return topLeftFirst(a, b)
+        }
+
+        var unlisted = visibleIDs
+        var rows: [DominoTableRow] = []
+        var group = 0
+
+        while !unlisted.isEmpty {
+            guard let nextRoot = pickNextTableRoot(unlisted: unlisted, ranks: ranks, topLeftFirst: topLeftFirst)
+            else { break }
+            let comp = component(startingAt: nextRoot)
+            let orderedIDs = comp.sorted(by: rankSortFirst)
+            let stripe = group
+            for id in orderedIDs {
+                guard let node = nodes[id] else { continue }
+                rows.append(DominoTableRow(id: id, node: node, stripeGroupIndex: stripe))
+            }
+            unlisted.subtract(comp)
+            group += 1
+        }
+
+        return rows
+    }
+
+    private func pickNextTableRoot(
+        unlisted: Set<UUID>,
+        ranks: [UUID: Int],
+        topLeftFirst: (UUID, UUID) -> Bool
+    ) -> UUID? {
+        guard !unlisted.isEmpty else { return nil }
+        let rank0 = unlisted.filter { ranks[$0] == 0 }
+        if let best = rank0.min(by: topLeftFirst) {
+            return best
+        }
+        return unlisted.min(by: topLeftFirst)
     }
 
     private func isNodeVisible(_ id: UUID) -> Bool {

@@ -4,7 +4,241 @@ import SwiftUI
 struct NodesTableView: View {
     @ObservedObject var viewModel: DominoViewModel
 
-    private static func colorDot(hex: String) -> NSImage {
+    var body: some View {
+        Group {
+            if viewModel.tableRows.isEmpty {
+                ContentUnavailableView(
+                    "No nodes",
+                    systemImage: "rectangle.on.rectangle.slash",
+                    description: Text("Add nodes in the graph view, or show hidden items if they are filtered out.")
+                )
+            } else {
+                DominoNodesAppKitTableView(viewModel: viewModel)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - AppKit table (full-row striping, resizable columns, native selection)
+
+@MainActor
+private struct DominoNodesAppKitTableView: NSViewRepresentable {
+    @ObservedObject var viewModel: DominoViewModel
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(viewModel: viewModel)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let coordinator = context.coordinator
+        coordinator.viewModel = viewModel
+        coordinator.rows = viewModel.tableRows
+        coordinator.lastRenderedRows = viewModel.tableRows
+        coordinator.showHidden = viewModel.showHiddenItems
+        coordinator.lastShowHidden = viewModel.showHiddenItems
+
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+
+        let table = NSTableView()
+        coordinator.tableView = table
+        coordinator.configureTable(table)
+
+        scroll.documentView = table
+        return scroll
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.applyUpdate(viewModel: viewModel)
+    }
+}
+
+@MainActor
+private final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    var viewModel: DominoViewModel
+    var rows: [DominoTableRow] = []
+    var showHidden: Bool = false
+    var lastShowHidden: Bool?
+    var lastRenderedRows: [DominoTableRow] = []
+    weak var tableView: NSTableView?
+
+    private var isSyncingSelection = false
+    private var lastFocusToken: UUID?
+
+    init(viewModel: DominoViewModel) {
+        self.viewModel = viewModel
+        super.init()
+    }
+
+    func configureTable(_ table: NSTableView) {
+        table.delegate = self
+        table.dataSource = self
+        table.headerView = NSTableHeaderView()
+        table.rowSizeStyle = .default
+        table.usesAlternatingRowBackgroundColors = false
+        table.selectionHighlightStyle = .regular
+        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        table.backgroundColor = .clear
+        table.usesAutomaticRowHeights = true
+        if #available(macOS 11.0, *) {
+            table.style = .fullWidth
+        }
+        rebuildColumns(on: table)
+    }
+
+    func rebuildColumns(on table: NSTableView) {
+        while let col = table.tableColumns.last {
+            table.removeTableColumn(col)
+        }
+        table.addTableColumn(Self.makeColumn(id: "text", title: "Text", min: 160, width: 280))
+        table.addTableColumn(Self.makeColumn(id: "color", title: "Color", min: 100, width: 120))
+        table.addTableColumn(Self.makeColumn(id: "date", title: "Plan date", min: 120, width: 140))
+        table.addTableColumn(Self.makeColumn(id: "budget", title: "Budget", min: 100, width: 120))
+        if showHidden {
+            table.addTableColumn(Self.makeColumn(id: "hidden", title: "Hidden", min: 56, width: 72))
+        }
+    }
+
+    private static func makeColumn(id: String, title: String, min: CGFloat, width: CGFloat) -> NSTableColumn {
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
+        col.title = title
+        col.minWidth = min
+        col.maxWidth = 10_000
+        col.width = width
+        col.resizingMask = [.autoresizingMask, .userResizingMask]
+        return col
+    }
+
+    func applyUpdate(viewModel: DominoViewModel) {
+        self.viewModel = viewModel
+        rows = viewModel.tableRows
+        showHidden = viewModel.showHiddenItems
+
+        guard let table = tableView else { return }
+
+        let hiddenChanged = lastShowHidden != viewModel.showHiddenItems
+        lastShowHidden = viewModel.showHiddenItems
+        let rowsChanged = lastRenderedRows != rows
+
+        if hiddenChanged {
+            rebuildColumns(on: table)
+        }
+        if hiddenChanged || rowsChanged {
+            let clipView = table.enclosingScrollView?.contentView
+            let preservedOrigin = clipView?.documentVisibleRect.origin
+            table.reloadData()
+            if let clipView, let preservedOrigin, viewModel.tableFocusRequest?.token == lastFocusToken {
+                clipView.scroll(to: preservedOrigin)
+                table.reflectScrolledClipView(clipView)
+            }
+            lastRenderedRows = rows
+        }
+
+        syncSelection()
+
+        if let req = viewModel.tableFocusRequest, req.token != lastFocusToken {
+            lastFocusToken = req.token
+            if let idx = rows.firstIndex(where: { $0.id == req.nodeID }) {
+                table.scrollRowToVisible(idx)
+                DispatchQueue.main.async { [weak table] in
+                    guard let table else { return }
+                    table.window?.makeFirstResponder(table)
+                }
+            }
+        }
+    }
+
+    func syncSelection() {
+        guard let table = tableView else { return }
+        isSyncingSelection = true
+        defer { isSyncingSelection = false }
+
+        if let sel = viewModel.selectedNodeID, let idx = rows.firstIndex(where: { $0.id == sel }) {
+            if table.selectedRowIndexes != IndexSet(integer: idx) {
+                table.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
+            }
+        } else {
+            table.deselectAll(nil)
+        }
+    }
+
+    // MARK: DataSource
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        rows.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard row < rows.count else { return nil }
+        let rowModel = rows[row]
+        let colId = tableColumn?.identifier.rawValue ?? "text"
+        let reuseId = NSUserInterfaceItemIdentifier("swiftui.\(colId)")
+
+        let cell: HostingTableCellView
+        if let existing = tableView.makeView(withIdentifier: reuseId, owner: nil) as? HostingTableCellView {
+            cell = existing
+        } else {
+            cell = HostingTableCellView()
+            cell.identifier = reuseId
+        }
+
+        let padded: (AnyView) -> AnyView = { view in
+            AnyView(view.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading))
+        }
+
+        switch colId {
+        case "text":
+            cell.setRoot(padded(AnyView(NodeTableTextField(nodeID: rowModel.node.id, viewModel: viewModel))))
+        case "color":
+            cell.setRoot(
+                padded(AnyView(NodeTableColorMenu(nodeID: rowModel.node.id, viewModel: viewModel, colorDot: NodesTableColorDot.image)))
+            )
+        case "date":
+            cell.setRoot(padded(AnyView(NodeTablePlannedDateCell(nodeID: rowModel.node.id, viewModel: viewModel))))
+        case "budget":
+            cell.setRoot(padded(AnyView(NodeTableBudgetField(nodeID: rowModel.node.id, viewModel: viewModel))))
+        case "hidden":
+            cell.setRoot(
+                padded(
+                    AnyView(
+                        Text(rowModel.node.isHidden ? "Yes" : "No")
+                            .foregroundStyle(rowModel.node.isHidden ? .secondary : .primary)
+                    )
+                )
+            )
+        default:
+            break
+        }
+        return cell
+    }
+
+    // MARK: Delegate
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let rv = GroupStripedNSTableRowView()
+        rv.configureStripe(stripeGroupIndex: rows.indices.contains(row) ? rows[row].stripeGroupIndex : 0)
+        return rv
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isSyncingSelection else { return }
+        guard let table = tableView else { return }
+        let row = table.selectedRow
+        if row >= 0, row < rows.count {
+            viewModel.selectSingleNode(rows[row].id)
+        } else {
+            viewModel.clearSelection()
+        }
+    }
+}
+
+private enum NodesTableColorDot {
+    static func image(hex: String) -> NSImage {
         let size = NSSize(width: 14, height: 14)
         let image = NSImage(size: size, flipped: false) { rect in
             let color = NSColor(Color(hex: hex))
@@ -15,107 +249,58 @@ struct NodesTableView: View {
         image.isTemplate = false
         return image
     }
+}
 
-    var body: some View {
-        ScrollViewReader { proxy in
-            Group {
-                if viewModel.visibleNodes.isEmpty {
-                    ContentUnavailableView(
-                        "No nodes",
-                        systemImage: "rectangle.on.rectangle.slash",
-                        description: Text("Add nodes in the graph view, or show hidden items if they are filtered out.")
-                    )
-                } else {
-                    // Two tables: conditional `TableColumn` requires macOS 14.4+ in SwiftUI.
-                    Group {
-                        if viewModel.showHiddenItems {
-                            Table(viewModel.visibleNodes, selection: tableSelection) {
-                                Self.sharedTableColumns(viewModel: viewModel)
-                                TableColumn("Hidden") { node in
-                                    Text(node.isHidden ? "Yes" : "No")
-                                        .foregroundStyle(node.isHidden ? .secondary : .primary)
-                                }
-                                .width(min: 56, ideal: 72)
-                            }
-                        } else {
-                            Table(viewModel.visibleNodes, selection: tableSelection) {
-                                Self.sharedTableColumns(viewModel: viewModel)
-                            }
-                        }
-                    }
-                }
-            }
-            .onAppear {
-                focusSelectedNode(using: proxy)
-            }
-            .onChange(of: viewModel.selectedNodeID) { _, _ in
-                focusSelectedNode(using: proxy)
-            }
-            .onChange(of: viewModel.tableFocusRequest) { _, request in
-                guard let request else { return }
-                focusNode(request.nodeID, using: proxy)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+private final class HostingTableCellView: NSTableCellView {
+    private var hosting: NSHostingView<AnyView>!
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let hv = NSHostingView(rootView: AnyView(EmptyView()))
+        hosting = hv
+        hv.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hv)
+        NSLayoutConstraint.activate([
+            hv.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            hv.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            hv.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            hv.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
     }
 
-    private var tableSelection: Binding<UUID?> {
-        Binding(
-            get: {
-                guard let selectedNodeID = viewModel.selectedNodeID,
-                    viewModel.visibleNodes.contains(where: { $0.id == selectedNodeID })
-                else {
-                    return nil
-                }
-                return selectedNodeID
-            },
-            set: { newValue in
-                guard let newValue else {
-                    viewModel.clearSelection()
-                    return
-                }
-                viewModel.selectSingleNode(newValue)
-            }
-        )
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private func focusSelectedNode(using proxy: ScrollViewProxy) {
-        guard let selectedNodeID = viewModel.selectedNodeID else { return }
-        focusNode(selectedNodeID, using: proxy)
-    }
-
-    private func focusNode(_ nodeID: UUID, using proxy: ScrollViewProxy) {
-        guard viewModel.visibleNodes.contains(where: { $0.id == nodeID }) else { return }
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                proxy.scrollTo(nodeID, anchor: .center)
-            }
-        }
+    func setRoot(_ view: AnyView) {
+        hosting.rootView = view
     }
 }
 
-extension NodesTableView {
-    @TableColumnBuilder<DominoNode, Never>
-    fileprivate static func sharedTableColumns(viewModel: DominoViewModel) -> some TableColumnContent<DominoNode, Never> {
-        TableColumn("Text") { node in
-            NodeTableTextField(nodeID: node.id, viewModel: viewModel)
-        }
-        .width(min: 160, ideal: 280)
+@MainActor
+private final class GroupStripedNSTableRowView: NSTableRowView {
+    private var stripeColor: NSColor = .controlBackgroundColor
 
-        TableColumn("Color") { node in
-            NodeTableColorMenu(nodeID: node.id, viewModel: viewModel, colorDot: Self.colorDot)
-        }
-        .width(min: 100, ideal: 120)
+    func configureStripe(stripeGroupIndex: Int) {
+        let colors = NSColor.alternatingContentBackgroundColors
+        stripeColor =
+            colors.isEmpty
+            ? .controlBackgroundColor
+            : colors[stripeGroupIndex % max(colors.count, 1)]
+        needsDisplay = true
+    }
 
-        TableColumn("Plan date") { node in
-            NodeTablePlannedDateCell(nodeID: node.id, viewModel: viewModel)
-        }
-        .width(min: 120, ideal: 140)
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        isSelected ? .emphasized : .normal
+    }
 
-        TableColumn("Budget") { node in
-            NodeTableBudgetField(nodeID: node.id, viewModel: viewModel)
+    override func drawBackground(in dirtyRect: NSRect) {
+        if isSelected {
+            super.drawBackground(in: dirtyRect)
+        } else {
+            stripeColor.setFill()
+            bounds.fill()
         }
-        .width(min: 100, ideal: 120)
     }
 }
 
@@ -153,7 +338,7 @@ private struct NodeTableTextField: View {
 
 // MARK: - Color
 
-/// Bitmap swatch for the menu label. SwiftUI `Menu` labels inside `Table` rows are often rendered as
+/// Bitmap swatch for the menu label. SwiftUI `Menu` labels inside table rows are often rendered as
 /// monochrome template content, which washes out `Shape` fills; AppKit drawing preserves true color.
 private enum ColorSwatchLabelImage {
     static let pixelSize = NSSize(width: 88, height: 26)

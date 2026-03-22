@@ -27,6 +27,7 @@ struct CanvasView: View {
     @State private var selectionAnchorCanvas: CGPoint? = nil
     @State private var viewportSize: CGSize = .zero
     @State private var selectionEdgeEnteredAt: Date? = nil
+    @State private var lastAppliedCanvasFocusToken: UUID?
 
     var body: some View {
         GeometryReader { geo in
@@ -295,9 +296,11 @@ struct CanvasView: View {
                 viewportSize = geo.size
                 viewModel.canvasScale = currentScale
                 applyCanvasRecenterIfPending(viewportSize: geo.size)
+                applyCanvasFocusIfNeeded(viewportSize: geo.size)
             }
             .onChange(of: geo.size) { _, newSize in
                 viewportSize = newSize
+                applyCanvasFocusIfNeeded(viewportSize: newSize)
             }
             .onReceive(Timer.publish(every: 1 / 60, on: .main, in: .common).autoconnect()) { _ in
                 guard let end = selectionEnd,
@@ -329,7 +332,7 @@ struct CanvasView: View {
             }
             .onChange(of: viewModel.canvasFocusRequest) { _, request in
                 guard let request else { return }
-                centerOnNode(request.nodeID, viewportSize: geo.size)
+                applyCanvasFocusIfNeeded(request: request, viewportSize: geo.size)
             }
             .onChange(of: viewModel.canvasRecenterToken) { _, _ in
                 applyCanvasRecenterIfPending(viewportSize: geo.size)
@@ -408,6 +411,18 @@ struct CanvasView: View {
             width: viewportSize.width / 2 - node.position.x,
             height: viewportSize.height / 2 - node.position.y
         )
+    }
+
+    private func applyCanvasFocusIfNeeded(viewportSize: CGSize) {
+        guard let request = viewModel.canvasFocusRequest else { return }
+        applyCanvasFocusIfNeeded(request: request, viewportSize: viewportSize)
+    }
+
+    private func applyCanvasFocusIfNeeded(request: NodeFocusRequest, viewportSize: CGSize) {
+        guard viewportSize.width > 1, viewportSize.height > 1 else { return }
+        guard request.token != lastAppliedCanvasFocusToken else { return }
+        lastAppliedCanvasFocusToken = request.token
+        centerOnNode(request.nodeID, viewportSize: viewportSize)
     }
 
     private func applyCanvasRecenterIfPending(viewportSize: CGSize) {

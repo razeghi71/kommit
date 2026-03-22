@@ -92,9 +92,14 @@ struct ContentView: View {
             guard let selectedNodeID = viewModel.selectedNodeID else { return }
             switch newWorkspace {
             case .graph:
-                viewModel.requestCanvasFocus(on: selectedNodeID)
+                viewModel.selectSingleNode(selectedNodeID)
+                DispatchQueue.main.async {
+                    viewModel.requestCanvasFocus(on: selectedNodeID)
+                }
             case .table:
-                viewModel.requestTableFocus(on: selectedNodeID)
+                DispatchQueue.main.async {
+                    viewModel.requestTableFocus(on: selectedNodeID)
+                }
             }
         }
         .onChange(of: searchText) { _, _ in
