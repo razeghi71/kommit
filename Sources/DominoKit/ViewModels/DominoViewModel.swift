@@ -1135,11 +1135,17 @@ package final class DominoViewModel: ObservableObject {
     package func expectedDues(month: Int, year: Int, calendar: Calendar = .current) -> [(entry: FinancialEntry, date: Date)] {
         var results: [(entry: FinancialEntry, date: Date)] = []
         for entry in financialEntries.values where entry.isActive {
-            var rec = entry.recurrence
-            rec.startDate = entry.createdAt
-            let dates = rec.occurrences(in: month, year: year, calendar: calendar)
-            for date in dates {
-                results.append((entry: entry, date: date))
+            if var rec = entry.recurrence {
+                rec.startDate = entry.createdAt
+                let dates = rec.occurrences(in: month, year: year, calendar: calendar)
+                for date in dates {
+                    results.append((entry: entry, date: date))
+                }
+            } else {
+                let comps = calendar.dateComponents([.year, .month], from: entry.createdAt)
+                if comps.year == year && comps.month == month {
+                    results.append((entry: entry, date: entry.createdAt))
+                }
             }
         }
         return results.sorted { $0.date < $1.date }

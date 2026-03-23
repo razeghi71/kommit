@@ -184,7 +184,7 @@ private struct EntryRow: View {
                     }
                 }
 
-                Text(entry.recurrence.description)
+                Text(entry.recurrenceDescription)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -210,9 +210,12 @@ private struct EntryRow: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 24)
+            .menuIndicator(.hidden)
+            .frame(width: 28)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -229,6 +232,18 @@ private struct EntryRow: View {
 
 // MARK: - Entry Editor
 
+// MARK: - Recurrence Preset (Google Calendar-style)
+
+private enum RecurrencePreset: Hashable {
+    case doesNotRepeat
+    case daily
+    case weeklyOnDay
+    case monthlyOnDay
+    case annuallyOnDate
+    case everyWeekday
+    case custom
+}
+
 private struct EntryEditorView: View {
     @ObservedObject var viewModel: DominoViewModel
     let entry: FinancialEntry?
@@ -240,24 +255,12 @@ private struct EntryEditorView: View {
     @State private var amount: String = ""
     @State private var category: String = ""
     @State private var isActive: Bool = true
+    @State private var eventDate: Date = Date()
 
-    // Recurrence state
-    @State private var frequency: RecurrenceFrequency = .monthly
-    @State private var interval: Int = 1
-    @State private var selectedWeekdays: Set<Weekday> = []
-    @State private var monthDay: Int = 1
-    @State private var monthDayMode: MonthDayMode = .dayOfMonth
-    @State private var nthOccurrence: Int = 1
-    @State private var nthWeekday: Weekday = .monday
-    @State private var yearMonth: Int = 1
-    @State private var yearDay: Int = 1
-    @State private var hasEnd: Bool = false
-    @State private var endDate: Date = Date().addingTimeInterval(365 * 24 * 3600)
-
-    private enum MonthDayMode: String, CaseIterable {
-        case dayOfMonth
-        case weekdayOfMonth
-    }
+    @State private var selectedPreset: RecurrencePreset = .doesNotRepeat
+    @State private var customRecurrence: Recurrence?
+    @State private var showCustomRecurrence = false
+    @State private var previousPreset: RecurrencePreset = .doesNotRepeat
 
     var isEditing: Bool { entry != nil }
 
@@ -268,8 +271,34 @@ private struct EntryEditorView: View {
             form
                 .padding(16)
         }
-        .frame(width: 480, height: 560)
+        .frame(width: 480, height: 440)
         .onAppear { loadEntry() }
+        .onChange(of: selectedPreset) { old, new in
+            if new == .custom {
+                previousPreset = old
+                showCustomRecurrence = true
+            }
+        }
+        .sheet(isPresented: $showCustomRecurrence, onDismiss: {
+            if customRecurrence == nil && selectedPreset == .custom {
+                selectedPreset = previousPreset
+            }
+        }) {
+            CustomRecurrenceSheet(
+                initial: customRecurrence ?? recurrenceForPreset(previousPreset),
+                eventDate: eventDate,
+                onSave: { rec in
+                    customRecurrence = rec
+                    showCustomRecurrence = false
+                },
+                onCancel: {
+                    if customRecurrence == nil {
+                        selectedPreset = previousPreset
+                    }
+                    showCustomRecurrence = false
+                }
+            )
+        }
     }
 
     private var header: some View {
@@ -289,13 +318,11 @@ private struct EntryEditorView: View {
     private var form: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                // Name
                 LabeledContent("Name") {
                     TextField("e.g. Rent, Salary", text: $name)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                // Type + Amount
                 HStack {
                     LabeledContent("Type") {
                         Picker("", selection: $type) {
@@ -316,7 +343,6 @@ private struct EntryEditorView: View {
                     }
                 }
 
-                // Category
                 LabeledContent("Category") {
                     TextField("Optional", text: $category)
                         .textFieldStyle(.roundedBorder)
@@ -326,76 +352,299 @@ private struct EntryEditorView: View {
 
                 Divider()
 
-                // Recurrence
-                Text("Recurrence")
-                    .font(.system(size: 13, weight: .semibold))
+                DatePicker("Date", selection: $eventDate, displayedComponents: .date)
 
-                LabeledContent("Every") {
-                    HStack(spacing: 6) {
-                        Stepper("\(interval)", value: $interval, in: 1...999)
-                            .frame(width: 100)
-                        Picker("", selection: $frequency) {
-                            ForEach(RecurrenceFrequency.allCases, id: \.self) { f in
-                                Text(interval == 1 ? f.displayName : "\(f.displayName)s").tag(f)
-                            }
-                        }
+                recurrencePicker
+
+                if selectedPreset == .custom, let rec = customRecurrence {
+                    HStack(spacing: 4) {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(rec.description)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
-                }
-
-                // Frequency-specific options
-                switch frequency {
-                case .daily:
-                    EmptyView()
-
-                case .weekly:
-                    weekdayPicker
-
-                case .monthly:
-                    monthlyOptions
-
-                case .yearly:
-                    yearlyOptions
-                }
-
-                Divider()
-
-                // End condition
-                Toggle("End date", isOn: $hasEnd)
-                if hasEnd {
-                    DatePicker("", selection: $endDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                }
-
-                Divider()
-
-                // Preview
-                HStack {
-                    Text("Preview:")
-                        .foregroundStyle(.secondary)
-                    Text(buildRecurrence().description)
-                        .font(.system(size: 12, weight: .medium))
-                    Spacer()
                 }
             }
         }
     }
 
-    private var weekdayPicker: some View {
-        LabeledContent("On") {
+    // MARK: - Recurrence Picker (Google Calendar-style dropdown)
+
+    private var recurrencePicker: some View {
+        LabeledContent("Repeats") {
+            Picker("", selection: $selectedPreset) {
+                Text("Does not repeat").tag(RecurrencePreset.doesNotRepeat)
+                Divider()
+                Text("Daily").tag(RecurrencePreset.daily)
+                Text(weeklyLabel).tag(RecurrencePreset.weeklyOnDay)
+                Text(monthlyOnDayLabel).tag(RecurrencePreset.monthlyOnDay)
+                Text(annuallyLabel).tag(RecurrencePreset.annuallyOnDate)
+                Text("Every weekday (Monday to Friday)").tag(RecurrencePreset.everyWeekday)
+                Divider()
+                Text("Custom…").tag(RecurrencePreset.custom)
+            }
+        }
+    }
+
+    // MARK: - Dynamic preset labels based on eventDate
+
+    private var eventWeekday: Weekday {
+        let wd = Calendar.current.component(.weekday, from: eventDate)
+        return Weekday.from(calendarWeekday: wd) ?? .monday
+    }
+
+    private var weeklyLabel: String {
+        "Weekly on \(eventWeekday.shortName)"
+    }
+
+    private var eventMonthDay: Int {
+        Calendar.current.component(.day, from: eventDate)
+    }
+
+    private var monthlyOnDayLabel: String {
+        "Monthly on the \(daySuffix(eventMonthDay))"
+    }
+
+    private static let daySuffixMap: [Int: String] = [
+        1: "1st", 2: "2nd", 3: "3rd", 21: "21st", 22: "22nd", 23: "23rd", 31: "31st"
+    ]
+
+    private func daySuffix(_ day: Int) -> String {
+        Self.daySuffixMap[day] ?? "\(day)th"
+    }
+
+    private var annuallyLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d"
+        return "Annually on \(formatter.string(from: eventDate))"
+    }
+
+    // MARK: - Build recurrence from preset
+
+    private func recurrenceForPreset(_ preset: RecurrencePreset) -> Recurrence? {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day], from: eventDate)
+        let monthDay = comps.day ?? 1
+        let month = comps.month ?? 1
+
+        switch preset {
+        case .doesNotRepeat:
+            return nil
+        case .daily:
+            return .everyDay()
+        case .weeklyOnDay:
+            return .everyWeek(on: [eventWeekday])
+        case .monthlyOnDay:
+            return .everyMonth(day: monthDay)
+        case .annuallyOnDate:
+            return .everyYear(month: month, day: monthDay)
+        case .everyWeekday:
+            return .everyWeekday()
+        case .custom:
+            return customRecurrence
+        }
+    }
+
+    private func buildRecurrence() -> Recurrence? {
+        recurrenceForPreset(selectedPreset)
+    }
+
+    // MARK: - Detect preset from existing recurrence
+
+    private func presetForRecurrence(_ rec: Recurrence?) -> RecurrencePreset {
+        guard let rec else { return .doesNotRepeat }
+
+        let wd = eventWeekday
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day], from: eventDate)
+        let day = comps.day ?? 1
+        let month = comps.month ?? 1
+
+        if rec.frequency == .daily && rec.interval == 1 && rec.end == .never
+            && rec.byWeekday == nil && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .daily
+        }
+
+        if rec.frequency == .weekly && rec.interval == 1 && rec.byWeekday == [wd]
+            && rec.end == .never && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .weeklyOnDay
+        }
+
+        if rec.frequency == .monthly && rec.interval == 1 && rec.byWeekday == nil
+            && rec.byMonthDay == [day] && rec.end == .never && rec.byMonth == nil {
+            return .monthlyOnDay
+        }
+
+        if rec.frequency == .yearly && rec.interval == 1 && rec.byMonth == month
+            && rec.byMonthDay == [day] && rec.end == .never && rec.byWeekday == nil {
+            return .annuallyOnDate
+        }
+
+        if rec.frequency == .weekly && rec.interval == 1
+            && Set(rec.byWeekday ?? []) == Set([Weekday.monday, .tuesday, .wednesday, .thursday, .friday])
+            && rec.end == .never && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .everyWeekday
+        }
+
+        return .custom
+    }
+
+    // MARK: - Load / Save
+
+    private func loadEntry() {
+        guard let entry else { return }
+        name = entry.name
+        type = entry.type
+        amount = String(format: "%.2f", entry.amount)
+        category = entry.category ?? ""
+        isActive = entry.isActive
+        eventDate = entry.createdAt
+
+        let preset = presetForRecurrence(entry.recurrence)
+        selectedPreset = preset
+        if preset == .custom {
+            customRecurrence = entry.recurrence
+        }
+    }
+
+    private func save() {
+        let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
+        var recurrence = buildRecurrence()
+        recurrence?.startDate = eventDate
+
+        let saved = FinancialEntry(
+            id: entry?.id ?? UUID(),
+            name: name.trimmingCharacters(in: .whitespaces),
+            type: type,
+            amount: amountValue,
+            recurrence: recurrence,
+            category: category.trimmingCharacters(in: .whitespaces).nilIfEmpty,
+            isActive: isActive,
+            createdAt: eventDate
+        )
+
+        if isEditing {
+            viewModel.updateFinancialEntry(saved)
+        } else {
+            viewModel.addFinancialEntry(saved)
+        }
+        dismiss()
+    }
+}
+
+// MARK: - Custom Recurrence Sheet (Google Calendar-style)
+
+private enum RecurrenceEndMode: Hashable {
+    case never
+    case onDate
+    case afterCount
+}
+
+private struct CustomRecurrenceSheet: View {
+    let initial: Recurrence?
+    let eventDate: Date
+    let onSave: (Recurrence) -> Void
+    let onCancel: () -> Void
+
+    @State private var frequency: RecurrenceFrequency = .weekly
+    @State private var interval: Int = 1
+    @State private var selectedWeekdays: Set<Weekday> = []
+    @State private var monthDay: Int = 1
+    @State private var monthDayMode: MonthDayMode = .dayOfMonth
+    @State private var nthOccurrence: Int = 1
+    @State private var nthWeekday: Weekday = .monday
+    @State private var yearMonth: Int = 1
+    @State private var yearDay: Int = 1
+    @State private var endMode: RecurrenceEndMode = .never
+    @State private var endDate: Date = Date().addingTimeInterval(90 * 24 * 3600)
+    @State private var endCount: Int = 13
+
+    private enum MonthDayMode: String, CaseIterable {
+        case dayOfMonth
+        case weekdayOfMonth
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Custom recurrence")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 16) {
+                repeatEveryRow
+
+                if frequency == .weekly {
+                    weekdaySelector
+                }
+
+                if frequency == .monthly {
+                    monthlySelector
+                }
+
+                if frequency == .yearly {
+                    yearlySelector
+                }
+
+                endsSection
+            }
+            .padding(16)
+
+            Spacer()
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Cancel") { onCancel() }
+                    .buttonStyle(.borderless)
+                Button("Done") { onSave(buildRecurrence()) }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(16)
+        }
+        .frame(width: 400, height: 420)
+        .onAppear { loadInitial() }
+    }
+
+    private var repeatEveryRow: some View {
+        LabeledContent("Repeat every") {
+            HStack(spacing: 6) {
+                Stepper("\(interval)", value: $interval, in: 1...999)
+                    .frame(width: 100)
+                Picker("", selection: $frequency) {
+                    ForEach(RecurrenceFrequency.allCases, id: \.self) { f in
+                        Text(interval == 1 ? f.displayName.lowercased() : "\(f.displayName.lowercased())s").tag(f)
+                    }
+                }
+                .frame(width: 100)
+            }
+        }
+    }
+
+    private var weekdaySelector: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Repeat on")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
             HStack(spacing: 4) {
                 ForEach(Weekday.allCases, id: \.self) { day in
                     Button {
-                        if selectedWeekdays.contains(day) {
+                        if selectedWeekdays.contains(day) && selectedWeekdays.count > 1 {
                             selectedWeekdays.remove(day)
                         } else {
                             selectedWeekdays.insert(day)
                         }
                     } label: {
-                        Text(day.shortName)
-                            .font(.system(size: 11, weight: .medium))
-                            .frame(width: 32, height: 28)
+                        Text(String(day.shortName.prefix(1)))
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 32, height: 32)
                             .background {
-                                RoundedRectangle(cornerRadius: 4)
+                                Circle()
                                     .fill(selectedWeekdays.contains(day) ? Color.accentColor : Color.primary.opacity(0.06))
                             }
                             .foregroundStyle(selectedWeekdays.contains(day) ? .white : .primary)
@@ -406,31 +655,23 @@ private struct EntryEditorView: View {
         }
     }
 
-    private var monthlyOptions: some View {
+    private var monthlySelector: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Pattern", selection: $monthDayMode) {
+            Picker("", selection: $monthDayMode) {
                 Text("Day of month").tag(MonthDayMode.dayOfMonth)
                 Text("Nth weekday").tag(MonthDayMode.weekdayOfMonth)
             }
-            .pickerStyle(.radioGroup)
+            .pickerStyle(.segmented)
 
             switch monthDayMode {
             case .dayOfMonth:
                 LabeledContent("Day") {
-                    HStack {
-                        Stepper("\(monthDay)", value: $monthDay, in: 1...31)
-                            .frame(width: 100)
-                        if monthDay == 31 {
-                            Text("(last day if month is shorter)")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    Stepper("\(monthDay)", value: $monthDay, in: 1...31)
+                        .frame(width: 100)
                 }
-
             case .weekdayOfMonth:
-                HStack {
-                    Picker("Occurrence", selection: $nthOccurrence) {
+                HStack(spacing: 8) {
+                    Picker("", selection: $nthOccurrence) {
                         Text("First").tag(1)
                         Text("Second").tag(2)
                         Text("Third").tag(3)
@@ -438,8 +679,7 @@ private struct EntryEditorView: View {
                         Text("Last").tag(-1)
                     }
                     .frame(width: 100)
-
-                    Picker("Weekday", selection: $nthWeekday) {
+                    Picker("", selection: $nthWeekday) {
                         ForEach(Weekday.allCases, id: \.self) { day in
                             Text(day.shortName).tag(day)
                         }
@@ -449,18 +689,15 @@ private struct EntryEditorView: View {
         }
     }
 
-    private var yearlyOptions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            LabeledContent("Month") {
-                Picker("", selection: $yearMonth) {
-                    let formatter = DateFormatter()
-                    ForEach(1...12, id: \.self) { m in
-                        Text(formatter.monthSymbols[m - 1]).tag(m)
-                    }
+    private var yearlySelector: some View {
+        HStack(spacing: 8) {
+            Picker("Month", selection: $yearMonth) {
+                let formatter = DateFormatter()
+                ForEach(1...12, id: \.self) { m in
+                    Text(formatter.monthSymbols[m - 1]).tag(m)
                 }
-                .frame(width: 140)
             }
-
+            .frame(width: 140)
             LabeledContent("Day") {
                 Stepper("\(yearDay)", value: $yearDay, in: 1...31)
                     .frame(width: 100)
@@ -468,109 +705,118 @@ private struct EntryEditorView: View {
         }
     }
 
+    private var endsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Ends")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Picker("", selection: $endMode) {
+                Text("Never").tag(RecurrenceEndMode.never)
+                Text("On date").tag(RecurrenceEndMode.onDate)
+                Text("After").tag(RecurrenceEndMode.afterCount)
+            }
+            .pickerStyle(.radioGroup)
+
+            switch endMode {
+            case .never:
+                EmptyView()
+            case .onDate:
+                DatePicker("", selection: $endDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+            case .afterCount:
+                HStack(spacing: 4) {
+                    Stepper("\(endCount)", value: $endCount, in: 1...999)
+                        .frame(width: 100)
+                    Text("occurrences")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private func buildRecurrence() -> Recurrence {
-        let end: RecurrenceEnd = hasEnd ? .until(endDate) : .never
+        let end: RecurrenceEnd
+        switch endMode {
+        case .never: end = .never
+        case .onDate: end = .until(endDate)
+        case .afterCount: end = .count(endCount)
+        }
 
         switch frequency {
         case .daily:
             return Recurrence(frequency: .daily, interval: interval, end: end)
-
         case .weekly:
-            let days = selectedWeekdays.isEmpty ? Array(Weekday.allCases) : Array(selectedWeekdays).sorted()
+            let days = selectedWeekdays.isEmpty ? [Weekday.monday] : Array(selectedWeekdays).sorted()
             return Recurrence(frequency: .weekly, interval: interval, byWeekday: days, end: end)
-
         case .monthly:
             switch monthDayMode {
             case .dayOfMonth:
                 return Recurrence(frequency: .monthly, interval: interval, byMonthDay: [monthDay], end: end)
             case .weekdayOfMonth:
-                return Recurrence(
-                    frequency: .monthly,
-                    interval: interval,
-                    byWeekday: [nthWeekday],
-                    byMonthDay: [nthOccurrence],
-                    end: end
-                )
+                return Recurrence(frequency: .monthly, interval: interval, byWeekday: [nthWeekday], byMonthDay: [nthOccurrence], end: end)
             }
-
         case .yearly:
-            return Recurrence(
-                frequency: .yearly,
-                interval: interval,
-                byMonthDay: [yearDay],
-                byMonth: yearMonth,
-                end: end
-            )
+            return Recurrence(frequency: .yearly, interval: interval, byMonthDay: [yearDay], byMonth: yearMonth, end: end)
         }
     }
 
-    private func loadEntry() {
-        guard let entry else { return }
-        name = entry.name
-        type = entry.type
-        amount = String(format: "%.2f", entry.amount)
-        category = entry.category ?? ""
-        isActive = entry.isActive
+    private func loadInitial() {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day, .weekday], from: eventDate)
+        let dayOfMonth = comps.day ?? 1
 
-        let rec = entry.recurrence
+        guard let rec = initial else {
+            frequency = .weekly
+            interval = 1
+            let wd = Weekday.from(calendarWeekday: comps.weekday ?? 2) ?? .monday
+            selectedWeekdays = [wd]
+            monthDay = dayOfMonth
+            yearMonth = comps.month ?? 1
+            yearDay = dayOfMonth
+            return
+        }
+
         frequency = rec.frequency
         interval = rec.interval
 
-        if let weekdays = rec.byWeekday {
+        if let weekdays = rec.byWeekday, !weekdays.isEmpty {
             selectedWeekdays = Set(weekdays)
+        } else {
+            let wd = Weekday.from(calendarWeekday: comps.weekday ?? 2) ?? .monday
+            selectedWeekdays = [wd]
         }
+
         if let days = rec.byMonthDay, let first = days.first {
             if rec.frequency == .monthly && rec.byWeekday != nil {
                 monthDayMode = .weekdayOfMonth
                 nthOccurrence = first
-                if let wd = rec.byWeekday?.first {
-                    nthWeekday = wd
-                }
+                nthWeekday = rec.byWeekday?.first ?? .monday
+            } else if rec.frequency == .yearly {
+                yearDay = first
+                monthDay = dayOfMonth
             } else {
                 monthDayMode = .dayOfMonth
                 monthDay = first
             }
+        } else {
+            monthDay = dayOfMonth
+            yearDay = dayOfMonth
         }
-        if let month = rec.byMonth {
-            yearMonth = month
-        }
-        if let days = rec.byMonthDay, let first = days.first, rec.frequency == .yearly {
-            yearDay = first
-        }
+
+        yearMonth = rec.byMonth ?? (comps.month ?? 1)
 
         switch rec.end {
         case .never:
-            hasEnd = false
+            endMode = .never
         case .until(let date):
-            hasEnd = true
+            endMode = .onDate
             endDate = date
-        case .count:
-            hasEnd = false
+        case .count(let n):
+            endMode = .afterCount
+            endCount = n
         }
-    }
-
-    private func save() {
-        let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
-        var recurrence = buildRecurrence()
-        recurrence.startDate = entry?.createdAt ?? Date()
-
-        let saved = FinancialEntry(
-            id: entry?.id ?? UUID(),
-            name: name.trimmingCharacters(in: .whitespaces),
-            type: type,
-            amount: amountValue,
-            recurrence: recurrence,
-            category: category.trimmingCharacters(in: .whitespaces).nilIfEmpty,
-            isActive: isActive,
-            createdAt: entry?.createdAt ?? Date()
-        )
-
-        if isEditing {
-            viewModel.updateFinancialEntry(saved)
-        } else {
-            viewModel.addFinancialEntry(saved)
-        }
-        dismiss()
     }
 }
 
@@ -738,9 +984,12 @@ private struct TransactionRow: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 24)
+            .menuIndicator(.hidden)
+            .frame(width: 28)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1177,7 +1426,7 @@ private struct DueRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name.isEmpty ? "Untitled" : entry.name)
                     .font(.system(size: 14, weight: .medium))
-                Text(entry.recurrence.description)
+                Text(entry.recurrenceDescription)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

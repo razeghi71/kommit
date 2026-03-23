@@ -440,7 +440,7 @@ package struct FinancialEntry: Identifiable, Codable, Equatable {
     var name: String
     var type: FinancialEntryType
     var amount: Double
-    var recurrence: Recurrence
+    var recurrence: Recurrence?
     var category: String?
     var isActive: Bool
     var createdAt: Date
@@ -450,7 +450,7 @@ package struct FinancialEntry: Identifiable, Codable, Equatable {
         name: String = "",
         type: FinancialEntryType = .expense,
         amount: Double = 0,
-        recurrence: Recurrence = .never,
+        recurrence: Recurrence? = nil,
         category: String? = nil,
         isActive: Bool = true,
         createdAt: Date = Date()
@@ -466,7 +466,12 @@ package struct FinancialEntry: Identifiable, Codable, Equatable {
     }
 
     var isRecurring: Bool {
-        recurrence.frequency != .daily || recurrence.interval > 0
+        recurrence != nil
+    }
+
+    var recurrenceDescription: String {
+        guard let recurrence else { return "Does not repeat" }
+        return recurrence.description
     }
 }
 
