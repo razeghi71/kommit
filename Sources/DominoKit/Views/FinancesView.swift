@@ -1268,31 +1268,20 @@ private struct TransactionEditorView: View {
     }
 
     private func computeInstances(for entry: FinancialEntry) -> [Date] {
-        guard var rec = entry.recurrence else { return [entry.createdAt] }
-        rec.startDate = entry.createdAt
-
-        let cal = Calendar.current
-        let now = Date()
-        let comps = cal.dateComponents([.year, .month], from: now)
-        let currentMonth = comps.month ?? 1
-        let currentYear = comps.year ?? 2026
-        var results: [Date] = []
-
-        for offset in -4...4 {
-            var m = currentMonth + offset
-            var y = currentYear
-            while m < 1 { m += 12; y -= 1 }
-            while m > 12 { m -= 12; y += 1 }
-            results.append(contentsOf: rec.occurrences(in: m, year: y, calendar: cal))
-        }
-
-        return results.sorted()
+        FinancialScheduling.recurrenceInstances(
+            for: entry,
+            centerMonth: defaultMonth,
+            centerYear: defaultYear,
+            calendar: Calendar.current
+        )
     }
 
     private func nearestInstance(for entry: FinancialEntry) -> Date {
         let instances = computeInstances(for: entry)
-        let now = Calendar.current.startOfDay(for: Date())
-        return instances.min(by: { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }) ?? now
+        let cal = Calendar.current
+        guard !instances.isEmpty else { return Date() }
+        let anchor = cal.date(from: DateComponents(year: defaultYear, month: defaultMonth, day: 15)) ?? Date()
+        return instances.min(by: { abs($0.timeIntervalSince(anchor)) < abs($1.timeIntervalSince(anchor)) }) ?? instances[0]
     }
 
     private static let instanceDateFormatter: DateFormatter = {
@@ -1312,6 +1301,16 @@ private struct TransactionEditorView: View {
             selectedDueDate = txn.dueDate
             note = txn.note ?? ""
             selectedEntryID = txn.entryID
+            if let entryID = txn.entryID, let entry = viewModel.financialEntries[entryID], entry.isRecurring {
+                let instances = computeInstances(for: entry)
+                if let resolved = FinancialScheduling.matchingOccurrence(
+                    in: instances,
+                    forStoredDueDate: txn.dueDate,
+                    calendar: Calendar.current
+                ) {
+                    selectedDueDate = resolved
+                }
+            }
         } else if let entryID = prefilledEntryID {
             selectedEntryID = entryID
             if let entry = viewModel.financialEntries[entryID] {
@@ -1321,6 +1320,16 @@ private struct TransactionEditorView: View {
             }
             if let prefilled = prefilledDueDate {
                 selectedDueDate = prefilled
+                if let entry = viewModel.financialEntries[entryID], entry.isRecurring {
+                    let instances = computeInstances(for: entry)
+                    if let resolved = FinancialScheduling.matchingOccurrence(
+                        in: instances,
+                        forStoredDueDate: prefilled,
+                        calendar: Calendar.current
+                    ) {
+                        selectedDueDate = resolved
+                    }
+                }
             }
         }
     }
@@ -1502,6 +1511,8 @@ private struct UpcomingDuesView: View {
     @ObservedObject var viewModel: DominoViewModel
     @State private var month: Int
     @State private var year: Int
+    @State private var pendingCustomRecord: PendingCustomRecord?
+    @State private var customRecordDate: Date = Date()
 
     init(viewModel: DominoViewModel) {
         self.viewModel = viewModel
@@ -1516,6 +1527,39 @@ private struct UpcomingDuesView: View {
             header
             Divider()
             duesList
+        }
+        .sheet(item: $pendingCustomRecord) { pending in
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 16) {
+                    DatePicker(
+                        "Record date",
+                        selection: $customRecordDate,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.graphical)
+
+                    Spacer()
+                }
+                .padding()
+                .navigationTitle("Custom Record Date")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            pendingCustomRecord = nil
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Record") {
+                            recordTransaction(
+                                for: pending.entry,
+                                dueDate: pending.dueDate,
+                                recordedOn: customRecordDate
+                            )
+                            pendingCustomRecord = nil
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1591,7 +1635,20 @@ private struct UpcomingDuesView: View {
                             entry: due.entry,
                             date: due.date,
                             isPaid: isPaid(entryID: due.entry.id, dueDate: due.date),
-                            onRecord: { recordTransaction(for: due.entry, on: due.date) }
+                            onRecordFirstWorkingDate: {
+                                let recordDate = FinancialScheduling.firstWorkingDateOnOrAfter(due.date)
+                                recordTransaction(for: due.entry, dueDate: due.date, recordedOn: recordDate)
+                            },
+                            onRecordDueDate: {
+                                recordTransaction(for: due.entry, dueDate: due.date, recordedOn: due.date)
+                            },
+                            onRecordToday: {
+                                recordTransaction(for: due.entry, dueDate: due.date, recordedOn: Date())
+                            },
+                            onRecordCustomDate: {
+                                customRecordDate = due.date
+                                pendingCustomRecord = PendingCustomRecord(entry: due.entry, dueDate: due.date)
+                            }
                         )
                         Divider()
                     }
@@ -1607,24 +1664,34 @@ private struct UpcomingDuesView: View {
         }
     }
 
-    private func recordTransaction(for entry: FinancialEntry, on dueDate: Date) {
+    private func recordTransaction(for entry: FinancialEntry, dueDate: Date, recordedOn: Date) {
         let txn = FinancialTransaction(
             entryID: entry.id,
             name: entry.name,
             amount: entry.amount,
             type: entry.type,
-            date: Date(),
+            date: recordedOn,
             dueDate: dueDate
         )
         viewModel.addFinancialTransaction(txn)
     }
+
+}
+
+private struct PendingCustomRecord: Identifiable {
+    let id = UUID()
+    let entry: FinancialEntry
+    let dueDate: Date
 }
 
 private struct DueRow: View {
     let entry: FinancialEntry
     let date: Date
     let isPaid: Bool
-    let onRecord: () -> Void
+    let onRecordFirstWorkingDate: () -> Void
+    let onRecordDueDate: () -> Void
+    let onRecordToday: () -> Void
+    let onRecordCustomDate: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1652,9 +1719,22 @@ private struct DueRow: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.green)
             } else {
-                Button("Record") { onRecord() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                Menu("Record") {
+                    Button("Record on first working day on or after the due date") {
+                        onRecordFirstWorkingDate()
+                    }
+                    Button("Record on due date") {
+                        onRecordDueDate()
+                    }
+                    Button("Record on Today") {
+                        onRecordToday()
+                    }
+                    Button("Record on custom date") {
+                        onRecordCustomDate()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
         .padding(.horizontal, 12)
