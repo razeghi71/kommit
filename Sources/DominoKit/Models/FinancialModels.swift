@@ -483,7 +483,10 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
     var name: String
     var amount: Double
     var type: FinancialEntryType
+    /// The date the payment was actually made.
     var date: Date
+    /// The due/occurrence date this transaction covers (may differ from payment date).
+    var dueDate: Date
     var note: String?
 
     package init(
@@ -493,6 +496,7 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
         amount: Double = 0,
         type: FinancialEntryType = .expense,
         date: Date = Date(),
+        dueDate: Date = Date(),
         note: String? = nil
     ) {
         self.id = id
@@ -501,6 +505,7 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
         self.amount = amount
         self.type = type
         self.date = date
+        self.dueDate = dueDate
         self.note = note
     }
 }

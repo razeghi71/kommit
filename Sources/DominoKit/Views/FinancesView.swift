@@ -965,6 +965,11 @@ private struct TransactionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
                     .font(.system(size: 14, weight: .medium))
+                if !Calendar.current.isDate(transaction.dueDate, inSameDayAs: transaction.date) {
+                    Text("Due: \(Self.dateFormatter.string(from: transaction.dueDate))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                }
                 if let note = transaction.note, !note.isEmpty {
                     Text(note)
                         .font(.system(size: 11))
@@ -1017,6 +1022,8 @@ private struct TransactionEditorView: View {
     let transaction: FinancialTransaction?
     let defaultMonth: Int
     let defaultYear: Int
+    var prefilledEntryID: UUID?
+    var prefilledDueDate: Date?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1024,6 +1031,7 @@ private struct TransactionEditorView: View {
     @State private var type: FinancialEntryType = .expense
     @State private var amount: String = ""
     @State private var date: Date = Date()
+    @State private var selectedDueDate: Date = Date()
     @State private var note: String = ""
     @State private var selectedEntryID: UUID?
 
@@ -1033,9 +1041,11 @@ private struct TransactionEditorView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            form.padding(16)
+            ScrollView {
+                form.padding(16)
+            }
         }
-        .frame(width: 420, height: 400)
+        .frame(width: 460, height: selectedEntryID != nil ? 480 : 400)
         .onAppear { loadTransaction() }
     }
 
@@ -1055,7 +1065,6 @@ private struct TransactionEditorView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Link to entry
             LabeledContent("From Entry") {
                 Picker("", selection: $selectedEntryID) {
                     Text("None (one-off)").tag(nil as UUID?)
@@ -1064,10 +1073,18 @@ private struct TransactionEditorView: View {
                     }
                 }
                 .onChange(of: selectedEntryID) { _, id in
-                    guard let id, let entry = viewModel.financialEntries[id] else { return }
+                    guard let id, let entry = viewModel.financialEntries[id] else {
+                        selectedDueDate = date
+                        return
+                    }
                     name = entry.name
                     type = entry.type
                     amount = String(format: "%.2f", entry.amount)
+                    if !entry.isRecurring {
+                        selectedDueDate = entry.createdAt
+                    } else {
+                        selectedDueDate = nearestInstance(for: entry)
+                    }
                 }
             }
 
@@ -1095,7 +1112,11 @@ private struct TransactionEditorView: View {
                 }
             }
 
-            DatePicker("Date", selection: $date, displayedComponents: .date)
+            if selectedEntryID != nil {
+                instancePicker
+            }
+
+            DatePicker("Payment date", selection: $date, displayedComponents: .date)
 
             LabeledContent("Note") {
                 TextField("Optional", text: $note)
@@ -1104,14 +1125,89 @@ private struct TransactionEditorView: View {
         }
     }
 
+    // MARK: - Instance picker
+
+    private var instancePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let id = selectedEntryID, let entry = viewModel.financialEntries[id] {
+                if entry.isRecurring {
+                    let instances = computeInstances(for: entry)
+                    LabeledContent("For occurrence") {
+                        Picker("", selection: $selectedDueDate) {
+                            ForEach(instances, id: \.self) { d in
+                                Text(Self.instanceDateFormatter.string(from: d)).tag(d)
+                            }
+                        }
+                    }
+                } else {
+                    HStack {
+                        Text("For occurrence")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(Self.instanceDateFormatter.string(from: entry.createdAt))
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                }
+            }
+        }
+    }
+
+    private func computeInstances(for entry: FinancialEntry) -> [Date] {
+        guard var rec = entry.recurrence else { return [entry.createdAt] }
+        rec.startDate = entry.createdAt
+
+        let cal = Calendar.current
+        let now = Date()
+        let comps = cal.dateComponents([.year, .month], from: now)
+        let currentMonth = comps.month ?? 1
+        let currentYear = comps.year ?? 2026
+        var results: [Date] = []
+
+        for offset in -4...4 {
+            var m = currentMonth + offset
+            var y = currentYear
+            while m < 1 { m += 12; y -= 1 }
+            while m > 12 { m -= 12; y += 1 }
+            results.append(contentsOf: rec.occurrences(in: m, year: y, calendar: cal))
+        }
+
+        return results.sorted()
+    }
+
+    private func nearestInstance(for entry: FinancialEntry) -> Date {
+        let instances = computeInstances(for: entry)
+        let now = Calendar.current.startOfDay(for: Date())
+        return instances.min(by: { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }) ?? now
+    }
+
+    private static let instanceDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
+    }()
+
+    // MARK: - Load / Save
+
     private func loadTransaction() {
-        guard let txn = transaction else { return }
-        name = txn.name
-        type = txn.type
-        amount = String(format: "%.2f", txn.amount)
-        date = txn.date
-        note = txn.note ?? ""
-        selectedEntryID = txn.entryID
+        if let txn = transaction {
+            name = txn.name
+            type = txn.type
+            amount = String(format: "%.2f", txn.amount)
+            date = txn.date
+            selectedDueDate = txn.dueDate
+            note = txn.note ?? ""
+            selectedEntryID = txn.entryID
+        } else if let entryID = prefilledEntryID {
+            selectedEntryID = entryID
+            if let entry = viewModel.financialEntries[entryID] {
+                name = entry.name
+                type = entry.type
+                amount = String(format: "%.2f", entry.amount)
+            }
+            if let prefilled = prefilledDueDate {
+                selectedDueDate = prefilled
+            }
+        }
     }
 
     private func save() {
@@ -1124,6 +1220,7 @@ private struct TransactionEditorView: View {
             amount: amountValue,
             type: type,
             date: date,
+            dueDate: selectedDueDate,
             note: note.trimmingCharacters(in: .whitespaces).nilIfEmpty
         )
 
@@ -1223,7 +1320,6 @@ private struct MonthlySummaryView: View {
 
             // Expected vs actual for entries
             let dues = viewModel.expectedDues(month: month, year: year)
-            let transactions = viewModel.transactionsForMonth(month: month, year: year)
 
             if !dues.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1231,9 +1327,9 @@ private struct MonthlySummaryView: View {
                         .font(.system(size: 14, weight: .semibold))
 
                     ForEach(dues, id: \.entry.id) { due in
-                        let paid = transactions.contains { txn in
+                        let paid = viewModel.financialTransactions.values.contains { txn in
                             txn.entryID == due.entry.id &&
-                            Calendar.current.isDate(txn.date, inSameDayAs: due.date)
+                            Calendar.current.isDate(txn.dueDate, inSameDayAs: due.date)
                         }
                         HStack {
                             Image(systemName: paid ? "checkmark.circle.fill" : "circle")
@@ -1359,9 +1455,6 @@ private struct UpcomingDuesView: View {
         viewModel.expectedDues(month: month, year: year)
     }
 
-    private var transactions: [FinancialTransaction] {
-        viewModel.transactionsForMonth(month: month, year: year)
-    }
 
     private var duesList: some View {
         ScrollView {
@@ -1382,7 +1475,7 @@ private struct UpcomingDuesView: View {
                         DueRow(
                             entry: due.entry,
                             date: due.date,
-                            isPaid: isPaid(entryID: due.entry.id, date: due.date),
+                            isPaid: isPaid(entryID: due.entry.id, dueDate: due.date),
                             onRecord: { recordTransaction(for: due.entry, on: due.date) }
                         )
                         Divider()
@@ -1392,19 +1485,21 @@ private struct UpcomingDuesView: View {
         }
     }
 
-    private func isPaid(entryID: UUID, date: Date) -> Bool {
-        transactions.contains { txn in
-            txn.entryID == entryID && Calendar.current.isDate(txn.date, inSameDayAs: date)
+    private func isPaid(entryID: UUID, dueDate: Date) -> Bool {
+        viewModel.financialTransactions.values.contains { txn in
+            txn.entryID == entryID &&
+            Calendar.current.isDate(txn.dueDate, inSameDayAs: dueDate)
         }
     }
 
-    private func recordTransaction(for entry: FinancialEntry, on date: Date) {
+    private func recordTransaction(for entry: FinancialEntry, on dueDate: Date) {
         let txn = FinancialTransaction(
             entryID: entry.id,
             name: entry.name,
             amount: entry.amount,
             type: entry.type,
-            date: date
+            date: Date(),
+            dueDate: dueDate
         )
         viewModel.addFinancialTransaction(txn)
     }
