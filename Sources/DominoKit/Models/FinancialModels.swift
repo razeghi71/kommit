@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Entry Type
 
-package enum FinancialEntryType: String, Codable, CaseIterable {
+package enum ScheduledTransactionType: String, Codable, CaseIterable {
     case income
     case expense
 
@@ -433,12 +433,12 @@ extension Weekday {
     }
 }
 
-// MARK: - Financial Entry
+// MARK: - Scheduled Transaction
 
-package struct FinancialEntry: Identifiable, Codable, Equatable {
+package struct ScheduledTransaction: Identifiable, Codable, Equatable {
     package let id: UUID
     var name: String
-    var type: FinancialEntryType
+    var type: ScheduledTransactionType
     var amount: Double
     var recurrence: Recurrence?
     var tags: [String]
@@ -448,7 +448,7 @@ package struct FinancialEntry: Identifiable, Codable, Equatable {
     package init(
         id: UUID = UUID(),
         name: String = "",
-        type: FinancialEntryType = .expense,
+        type: ScheduledTransactionType = .expense,
         amount: Double = 0,
         recurrence: Recurrence? = nil,
         tags: [String] = [],
@@ -481,7 +481,7 @@ package struct FinancialEntry: Identifiable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        type = try container.decodeIfPresent(FinancialEntryType.self, forKey: .type) ?? .expense
+        type = try container.decodeIfPresent(ScheduledTransactionType.self, forKey: .type) ?? .expense
         amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0
         recurrence = try container.decodeIfPresent(Recurrence.self, forKey: .recurrence)
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
@@ -535,10 +535,10 @@ package struct FinancialEntry: Identifiable, Codable, Equatable {
 
 package struct FinancialTransaction: Identifiable, Codable, Equatable {
     package let id: UUID
-    var entryID: UUID?
+    var scheduledTransactionID: UUID?
     var name: String
     var amount: Double
-    var type: FinancialEntryType
+    var type: ScheduledTransactionType
     /// The date the payment was actually made.
     var date: Date
     /// The due/occurrence date this transaction covers (may differ from payment date).
@@ -548,17 +548,17 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
 
     package init(
         id: UUID = UUID(),
-        entryID: UUID? = nil,
+        scheduledTransactionID: UUID? = nil,
         name: String = "",
         amount: Double = 0,
-        type: FinancialEntryType = .expense,
+        type: ScheduledTransactionType = .expense,
         date: Date = Date(),
         dueDate: Date = Date(),
         tags: [String] = [],
         note: String? = nil
     ) {
         self.id = id
-        self.entryID = entryID
+        self.scheduledTransactionID = scheduledTransactionID
         self.name = name
         self.amount = amount
         self.type = type
@@ -570,7 +570,7 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id
-        case entryID
+        case scheduledTransactionID
         case name
         case amount
         case type
@@ -583,10 +583,10 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
     package init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        entryID = try container.decodeIfPresent(UUID.self, forKey: .entryID)
+        scheduledTransactionID = try container.decodeIfPresent(UUID.self, forKey: .scheduledTransactionID)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0
-        type = try container.decodeIfPresent(FinancialEntryType.self, forKey: .type) ?? .expense
+        type = try container.decodeIfPresent(ScheduledTransactionType.self, forKey: .type) ?? .expense
         date = try container.decodeIfPresent(Date.self, forKey: .date) ?? Date()
         dueDate = try container.decodeIfPresent(Date.self, forKey: .dueDate) ?? date
         tags = Self.normalizedTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
@@ -596,7 +596,7 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
     package func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
-        try container.encodeIfPresent(entryID, forKey: .entryID)
+        try container.encodeIfPresent(scheduledTransactionID, forKey: .scheduledTransactionID)
         try container.encode(name, forKey: .name)
         try container.encode(amount, forKey: .amount)
         try container.encode(type, forKey: .type)

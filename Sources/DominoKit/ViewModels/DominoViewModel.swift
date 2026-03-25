@@ -108,7 +108,7 @@ package final class DominoViewModel: ObservableObject {
     @Published var canvasFocusRequest: NodeFocusRequest?
     @Published var tableFocusRequest: NodeFocusRequest?
     @Published var searchPresentationRequest: SearchPresentationRequest?
-    @Published var financialEntries: [UUID: FinancialEntry] = [:]
+    @Published var scheduledTransactions: [UUID: ScheduledTransaction] = [:]
     @Published var financialTransactions: [UUID: FinancialTransaction] = [:]
     @Published var financialBudgets: [UUID: FinancialBudget] = [:]
     /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
@@ -684,7 +684,7 @@ package final class DominoViewModel: ObservableObject {
     private struct DecodedBoard {
         let nodes: [DominoNode]
         let fileStatusSettings: DominoStatusSettings?
-        let financialEntries: [FinancialEntry]?
+        let scheduledTransactions: [ScheduledTransaction]?
         let financialTransactions: [FinancialTransaction]?
         let financialBudgets: [FinancialBudget]?
     }
@@ -703,7 +703,7 @@ package final class DominoViewModel: ObservableObject {
             return DecodedBoard(
                 nodes: migrated.nodes,
                 fileStatusSettings: migrated.fileStatusSettings ?? explicitFileSettings,
-                financialEntries: document.financialEntries,
+                scheduledTransactions: document.scheduledTransactions,
                 financialTransactions: document.financialTransactions,
                 financialBudgets: document.financialBudgets
             )
@@ -714,7 +714,7 @@ package final class DominoViewModel: ObservableObject {
         return DecodedBoard(
             nodes: migrated.nodes,
             fileStatusSettings: migrated.fileStatusSettings,
-            financialEntries: nil,
+            scheduledTransactions: nil,
             financialTransactions: nil,
             financialBudgets: nil
         )
@@ -1022,7 +1022,7 @@ package final class DominoViewModel: ObservableObject {
 
     package func newBoard() {
         nodes.removeAll()
-        financialEntries.removeAll()
+        scheduledTransactions.removeAll()
         financialTransactions.removeAll()
         financialBudgets.removeAll()
         fileStatusSettings = nil
@@ -1065,13 +1065,13 @@ package final class DominoViewModel: ObservableObject {
     private func writeToFile(_ url: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
-        let entries = financialEntries.values.isEmpty ? nil : Array(financialEntries.values)
+        let scheduled = scheduledTransactions.values.isEmpty ? nil : Array(scheduledTransactions.values)
         let transactions = financialTransactions.values.isEmpty ? nil : Array(financialTransactions.values)
         let budgets = financialBudgets.values.isEmpty ? nil : Array(financialBudgets.values)
         let document = DominoDocument(
             nodes: sortedNodes,
             settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings,
-            financialEntries: entries,
+            scheduledTransactions: scheduled,
             financialTransactions: transactions,
             financialBudgets: budgets
         )
@@ -1085,10 +1085,10 @@ package final class DominoViewModel: ObservableObject {
             let loaded = decodeBoard(from: data)
         else { return }
         nodes = Dictionary(uniqueKeysWithValues: loaded.nodes.map { ($0.id, $0) })
-        financialEntries = Dictionary(uniqueKeysWithValues: (loaded.financialEntries ?? []).map { ($0.id, $0) })
+        scheduledTransactions = Dictionary(uniqueKeysWithValues: (loaded.scheduledTransactions ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })
         financialBudgets = Dictionary(uniqueKeysWithValues: (loaded.financialBudgets ?? []).map { ($0.id, $0) })
-        backfillTransactionTagsFromEntriesIfNeeded()
+        backfillTransactionTagsFromScheduledTransactionsIfNeeded()
         fileStatusSettings = loaded.fileStatusSettings
         editingNodeID = nil
         selectedNodeID = nil
@@ -1101,18 +1101,18 @@ package final class DominoViewModel: ObservableObject {
 
     // MARK: - Finances CRUD
 
-    package func addFinancialEntry(_ entry: FinancialEntry) {
-        financialEntries[entry.id] = entry
+    package func addScheduledTransaction(_ scheduledTransaction: ScheduledTransaction) {
+        scheduledTransactions[scheduledTransaction.id] = scheduledTransaction
         isDirty = true
     }
 
-    package func updateFinancialEntry(_ entry: FinancialEntry) {
-        financialEntries[entry.id] = entry
+    package func updateScheduledTransaction(_ scheduledTransaction: ScheduledTransaction) {
+        scheduledTransactions[scheduledTransaction.id] = scheduledTransaction
         isDirty = true
     }
 
-    package func deleteFinancialEntry(_ id: UUID) {
-        financialEntries.removeValue(forKey: id)
+    package func deleteScheduledTransaction(_ id: UUID) {
+        scheduledTransactions.removeValue(forKey: id)
         isDirty = true
     }
 
@@ -1155,25 +1155,25 @@ package final class DominoViewModel: ObservableObject {
         }.sorted { $0.date < $1.date }
     }
 
-    package func activeEntriesByType(_ type: FinancialEntryType) -> [FinancialEntry] {
-        financialEntries.values.filter { $0.type == type && $0.isActive }
+    package func activeScheduledTransactions(ofType type: ScheduledTransactionType) -> [ScheduledTransaction] {
+        scheduledTransactions.values.filter { $0.type == type && $0.isActive }
             .sorted { $0.name < $1.name }
     }
 
-    /// Returns expected (entry, occurrence date) pairs for a given month based on recurrence rules.
-    package func expectedDues(month: Int, year: Int, calendar: Calendar = .current) -> [(entry: FinancialEntry, date: Date)] {
-        var results: [(entry: FinancialEntry, date: Date)] = []
-        for entry in financialEntries.values where entry.isActive {
-            if var rec = entry.recurrence {
-                rec.startDate = entry.createdAt
+    /// Returns expected (scheduled transaction, occurrence date) pairs for a given month based on recurrence rules.
+    package func expectedDues(month: Int, year: Int, calendar: Calendar = .current) -> [(scheduled: ScheduledTransaction, date: Date)] {
+        var results: [(scheduled: ScheduledTransaction, date: Date)] = []
+        for scheduled in scheduledTransactions.values where scheduled.isActive {
+            if var rec = scheduled.recurrence {
+                rec.startDate = scheduled.createdAt
                 let dates = rec.occurrences(in: month, year: year, calendar: calendar)
                 for date in dates {
-                    results.append((entry: entry, date: date))
+                    results.append((scheduled: scheduled, date: date))
                 }
             } else {
-                let comps = calendar.dateComponents([.year, .month], from: entry.createdAt)
+                let comps = calendar.dateComponents([.year, .month], from: scheduled.createdAt)
                 if comps.year == year && comps.month == month {
-                    results.append((entry: entry, date: entry.createdAt))
+                    results.append((scheduled: scheduled, date: scheduled.createdAt))
                 }
             }
         }
@@ -1188,7 +1188,7 @@ package final class DominoViewModel: ObservableObject {
     }
 
     package func allFinancialTags() -> [String] {
-        let tags = financialEntries.values.flatMap(\.tags).filter { !$0.isEmpty }
+        let tags = scheduledTransactions.values.flatMap(\.tags).filter { !$0.isEmpty }
         return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -1262,12 +1262,14 @@ package final class DominoViewModel: ObservableObject {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
-    private func backfillTransactionTagsFromEntriesIfNeeded() {
+    private func backfillTransactionTagsFromScheduledTransactionsIfNeeded() {
         var changed = false
         for id in financialTransactions.keys {
             guard var txn = financialTransactions[id], txn.tags.isEmpty else { continue }
-            guard let entryID = txn.entryID, let entry = financialEntries[entryID], !entry.tags.isEmpty else { continue }
-            txn.tags = entry.tags
+            guard let stID = txn.scheduledTransactionID,
+                let scheduled = scheduledTransactions[stID],
+                !scheduled.tags.isEmpty else { continue }
+            txn.tags = scheduled.tags
             financialTransactions[id] = txn
             changed = true
         }

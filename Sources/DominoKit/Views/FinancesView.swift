@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Finances Sub-tabs
 
 private enum FinancesTab: String, CaseIterable, Identifiable {
-    case entries
+    case scheduledTransactions
     case transactions
     case budgets
     case summary
@@ -13,7 +13,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .entries: "Entries"
+        case .scheduledTransactions: "Scheduled"
         case .transactions: "Transactions"
         case .budgets: "Budgets"
         case .summary: "Summary"
@@ -23,7 +23,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .entries: "list.bullet.rectangle"
+        case .scheduledTransactions: "list.bullet.rectangle"
         case .transactions: "arrow.left.arrow.right"
         case .budgets: "wallet.bifold"
         case .summary: "chart.pie"
@@ -36,7 +36,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 
 package struct FinancesView: View {
     @ObservedObject var viewModel: DominoViewModel
-    @State private var selectedTab: FinancesTab = .entries
+    @State private var selectedTab: FinancesTab = .scheduledTransactions
 
     package var body: some View {
         HStack(spacing: 0) {
@@ -85,8 +85,8 @@ package struct FinancesView: View {
     @ViewBuilder
     private var content: some View {
         switch selectedTab {
-        case .entries:
-            EntriesListView(viewModel: viewModel)
+        case .scheduledTransactions:
+            ScheduledTransactionsListView(viewModel: viewModel)
         case .transactions:
             TransactionsListView(viewModel: viewModel)
         case .budgets:
@@ -99,13 +99,13 @@ package struct FinancesView: View {
     }
 }
 
-// MARK: - Entries List
+// MARK: - Scheduled transactions list
 
-private struct EntriesListView: View {
+private struct ScheduledTransactionsListView: View {
     @ObservedObject var viewModel: DominoViewModel
-    @State private var showingAddEntry = false
-    @State private var editingEntry: FinancialEntry?
-    @State private var filterType: FinancialEntryType?
+    @State private var showingAddScheduledTransaction = false
+    @State private var editingScheduledTransaction: ScheduledTransaction?
+    @State private var filterType: ScheduledTransactionType?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -113,31 +113,31 @@ private struct EntriesListView: View {
             Divider()
             entriesTable
         }
-        .sheet(isPresented: $showingAddEntry) {
-            EntryEditorView(viewModel: viewModel, entry: nil)
+        .sheet(isPresented: $showingAddScheduledTransaction) {
+            ScheduledTransactionEditorView(viewModel: viewModel, scheduledTransaction: nil)
         }
-        .sheet(item: $editingEntry) { entry in
-            EntryEditorView(viewModel: viewModel, entry: entry)
+        .sheet(item: $editingScheduledTransaction) { scheduled in
+            ScheduledTransactionEditorView(viewModel: viewModel, scheduledTransaction: scheduled)
         }
     }
 
     private var header: some View {
         HStack {
-            Text("Financial Entries")
+            Text("Scheduled transactions")
                 .font(.system(size: 16, weight: .semibold))
 
             Spacer()
 
             Picker("", selection: $filterType) {
-                Text("All").tag(nil as FinancialEntryType?)
-                Text("Income").tag(FinancialEntryType.income as FinancialEntryType?)
-                Text("Expense").tag(FinancialEntryType.expense as FinancialEntryType?)
+                Text("All").tag(nil as ScheduledTransactionType?)
+                Text("Income").tag(ScheduledTransactionType.income as ScheduledTransactionType?)
+                Text("Expense").tag(ScheduledTransactionType.expense as ScheduledTransactionType?)
             }
             .pickerStyle(.segmented)
             .frame(width: 200)
 
             Button {
-                showingAddEntry = true
+                showingAddScheduledTransaction = true
             } label: {
                 Image(systemName: "plus")
             }
@@ -146,8 +146,8 @@ private struct EntriesListView: View {
         .padding(12)
     }
 
-    private var filteredEntries: [FinancialEntry] {
-        viewModel.financialEntries.values
+    private var filteredEntries: [ScheduledTransaction] {
+        viewModel.scheduledTransactions.values
             .filter { entry in
                 if let filter = filterType { return entry.type == filter }
                 return true
@@ -159,8 +159,8 @@ private struct EntriesListView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(filteredEntries) { entry in
-                    EntryRow(entry: entry, onEdit: { editingEntry = entry }, onDelete: {
-                        viewModel.deleteFinancialEntry(entry.id)
+                    ScheduledTransactionRow(scheduled: entry, onEdit: { editingScheduledTransaction = entry }, onDelete: {
+                        viewModel.deleteScheduledTransaction(entry.id)
                     })
                     Divider()
                 }
@@ -169,8 +169,8 @@ private struct EntriesListView: View {
     }
 }
 
-private struct EntryRow: View {
-    let entry: FinancialEntry
+private struct ScheduledTransactionRow: View {
+    let scheduled: ScheduledTransaction
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -178,9 +178,9 @@ private struct EntryRow: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(entry.name.isEmpty ? "Untitled" : entry.name)
+                    Text(scheduled.name.isEmpty ? "Untitled" : scheduled.name)
                         .font(.system(size: 14, weight: .medium))
-                    if !entry.isActive {
+                    if !scheduled.isActive {
                         Text("Paused")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -190,21 +190,21 @@ private struct EntryRow: View {
                     }
                 }
 
-                Text(entry.recurrenceDescription)
+                Text(scheduled.recurrenceDescription)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            Text(entry.type == .income ? "+\(formatAmount(entry.amount))" : "-\(formatAmount(entry.amount))")
+            Text(scheduled.type == .income ? "+\(formatAmount(scheduled.amount))" : "-\(formatAmount(scheduled.amount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                .foregroundStyle(entry.type == .income ? .green : .primary)
+                .foregroundStyle(scheduled.type == .income ? .green : .primary)
 
-            if !entry.tags.isEmpty {
+            if !scheduled.tags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
-                        ForEach(entry.tags, id: \.self) { tag in
+                        ForEach(scheduled.tags, id: \.self) { tag in
                             Text(tag)
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
@@ -243,7 +243,7 @@ private struct EntryRow: View {
     }
 }
 
-// MARK: - Entry Editor
+// MARK: - Scheduled transaction editor
 
 // MARK: - Recurrence Preset (Google Calendar-style)
 
@@ -257,14 +257,14 @@ private enum RecurrencePreset: Hashable {
     case custom
 }
 
-private struct EntryEditorView: View {
+private struct ScheduledTransactionEditorView: View {
     @ObservedObject var viewModel: DominoViewModel
-    let entry: FinancialEntry?
+    let scheduledTransaction: ScheduledTransaction?
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
-    @State private var type: FinancialEntryType = .expense
+    @State private var type: ScheduledTransactionType = .expense
     @State private var amount: String = ""
     @State private var tags: [String] = []
     @State private var tagInput: String = ""
@@ -276,7 +276,7 @@ private struct EntryEditorView: View {
     @State private var showCustomRecurrence = false
     @State private var previousPreset: RecurrencePreset = .doesNotRepeat
 
-    var isEditing: Bool { entry != nil }
+    var isEditing: Bool { scheduledTransaction != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -286,7 +286,7 @@ private struct EntryEditorView: View {
                 .padding(16)
         }
         .frame(width: 480, height: 440)
-        .onAppear { loadEntry() }
+        .onAppear { loadScheduledTransaction() }
         .onChange(of: selectedPreset) { old, new in
             if new == .custom {
                 previousPreset = old
@@ -317,7 +317,7 @@ private struct EntryEditorView: View {
 
     private var header: some View {
         HStack {
-            Text(isEditing ? "Edit Entry" : "New Entry")
+            Text(isEditing ? "Edit scheduled transaction" : "New scheduled transaction")
                 .font(.system(size: 15, weight: .semibold))
             Spacer()
             Button("Cancel") { dismiss() }
@@ -340,7 +340,7 @@ private struct EntryEditorView: View {
                 HStack {
                     LabeledContent("Type") {
                         Picker("", selection: $type) {
-                            ForEach(FinancialEntryType.allCases, id: \.self) { t in
+                            ForEach(ScheduledTransactionType.allCases, id: \.self) { t in
                                 Text(t.displayName).tag(t)
                             }
                         }
@@ -513,19 +513,19 @@ private struct EntryEditorView: View {
 
     // MARK: - Load / Save
 
-    private func loadEntry() {
-        guard let entry else { return }
-        name = entry.name
-        type = entry.type
-        amount = String(format: "%.2f", entry.amount)
-        tags = entry.tags
-        isActive = entry.isActive
-        eventDate = entry.createdAt
+    private func loadScheduledTransaction() {
+        guard let scheduledTransaction else { return }
+        name = scheduledTransaction.name
+        type = scheduledTransaction.type
+        amount = String(format: "%.2f", scheduledTransaction.amount)
+        tags = scheduledTransaction.tags
+        isActive = scheduledTransaction.isActive
+        eventDate = scheduledTransaction.createdAt
 
-        let preset = presetForRecurrence(entry.recurrence)
+        let preset = presetForRecurrence(scheduledTransaction.recurrence)
         selectedPreset = preset
         if preset == .custom {
-            customRecurrence = entry.recurrence
+            customRecurrence = scheduledTransaction.recurrence
         }
     }
 
@@ -534,8 +534,8 @@ private struct EntryEditorView: View {
         var recurrence = buildRecurrence()
         recurrence?.startDate = eventDate
 
-        let saved = FinancialEntry(
-            id: entry?.id ?? UUID(),
+        let saved = ScheduledTransaction(
+            id: scheduledTransaction?.id ?? UUID(),
             name: name.trimmingCharacters(in: .whitespaces),
             type: type,
             amount: amountValue,
@@ -546,9 +546,9 @@ private struct EntryEditorView: View {
         )
 
         if isEditing {
-            viewModel.updateFinancialEntry(saved)
+            viewModel.updateScheduledTransaction(saved)
         } else {
-            viewModel.addFinancialEntry(saved)
+            viewModel.addScheduledTransaction(saved)
         }
         dismiss()
     }
@@ -1155,18 +1155,18 @@ private struct TransactionEditorView: View {
     let transaction: FinancialTransaction?
     let defaultMonth: Int
     let defaultYear: Int
-    var prefilledEntryID: UUID?
+    var prefilledScheduledTransactionID: UUID?
     var prefilledDueDate: Date?
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
-    @State private var type: FinancialEntryType = .expense
+    @State private var type: ScheduledTransactionType = .expense
     @State private var amount: String = ""
     @State private var date: Date = Date()
     @State private var selectedDueDate: Date = Date()
     @State private var note: String = ""
-    @State private var selectedEntryID: UUID?
+    @State private var selectedScheduledTransactionID: UUID?
     @State private var tags: [String] = []
     @State private var tagInput: String = ""
 
@@ -1180,7 +1180,7 @@ private struct TransactionEditorView: View {
                 form.padding(16)
             }
         }
-        .frame(width: 460, height: selectedEntryID != nil ? 560 : 500)
+        .frame(width: 460, height: selectedScheduledTransactionID != nil ? 560 : 500)
         .onAppear { loadTransaction() }
     }
 
@@ -1200,26 +1200,26 @@ private struct TransactionEditorView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
-            LabeledContent("From Entry") {
-                Picker("", selection: $selectedEntryID) {
+            LabeledContent("From scheduled transaction") {
+                Picker("", selection: $selectedScheduledTransactionID) {
                     Text("None (one-off)").tag(nil as UUID?)
-                    ForEach(Array(viewModel.financialEntries.values).sorted { $0.name < $1.name }) { entry in
-                        Text(entry.name).tag(entry.id as UUID?)
+                    ForEach(Array(viewModel.scheduledTransactions.values).sorted { $0.name < $1.name }) { scheduled in
+                        Text(scheduled.name).tag(scheduled.id as UUID?)
                     }
                 }
-                .onChange(of: selectedEntryID) { _, id in
-                    guard let id, let entry = viewModel.financialEntries[id] else {
+                .onChange(of: selectedScheduledTransactionID) { _, id in
+                    guard let id, let scheduled = viewModel.scheduledTransactions[id] else {
                         selectedDueDate = date
                         return
                     }
-                    name = entry.name
-                    type = entry.type
-                    amount = String(format: "%.2f", entry.amount)
-                    tags = entry.tags
-                    if !entry.isRecurring {
-                        selectedDueDate = entry.createdAt
+                    name = scheduled.name
+                    type = scheduled.type
+                    amount = String(format: "%.2f", scheduled.amount)
+                    tags = scheduled.tags
+                    if !scheduled.isRecurring {
+                        selectedDueDate = scheduled.createdAt
                     } else {
-                        selectedDueDate = nearestInstance(for: entry)
+                        selectedDueDate = nearestInstance(for: scheduled)
                     }
                 }
             }
@@ -1232,7 +1232,7 @@ private struct TransactionEditorView: View {
             HStack {
                 LabeledContent("Type") {
                     Picker("", selection: $type) {
-                        ForEach(FinancialEntryType.allCases, id: \.self) { t in
+                        ForEach(ScheduledTransactionType.allCases, id: \.self) { t in
                             Text(t.displayName).tag(t)
                         }
                     }
@@ -1248,7 +1248,7 @@ private struct TransactionEditorView: View {
                 }
             }
 
-            if selectedEntryID != nil {
+            if selectedScheduledTransactionID != nil {
                 instancePicker
             }
 
@@ -1299,9 +1299,9 @@ private struct TransactionEditorView: View {
 
     private var instancePicker: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let id = selectedEntryID, let entry = viewModel.financialEntries[id] {
-                if entry.isRecurring {
-                    let instances = computeInstances(for: entry)
+            if let id = selectedScheduledTransactionID, let scheduled = viewModel.scheduledTransactions[id] {
+                if scheduled.isRecurring {
+                    let instances = computeInstances(for: scheduled)
                     LabeledContent("For occurrence") {
                         Picker("", selection: $selectedDueDate) {
                             ForEach(instances, id: \.self) { d in
@@ -1314,7 +1314,7 @@ private struct TransactionEditorView: View {
                         Text("For occurrence")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(Self.instanceDateFormatter.string(from: entry.createdAt))
+                        Text(Self.instanceDateFormatter.string(from: scheduled.createdAt))
                             .font(.system(size: 13, weight: .medium))
                     }
                 }
@@ -1322,17 +1322,17 @@ private struct TransactionEditorView: View {
         }
     }
 
-    private func computeInstances(for entry: FinancialEntry) -> [Date] {
+    private func computeInstances(for scheduled: ScheduledTransaction) -> [Date] {
         FinancialScheduling.recurrenceInstances(
-            for: entry,
+            for: scheduled,
             centerMonth: defaultMonth,
             centerYear: defaultYear,
             calendar: Calendar.current
         )
     }
 
-    private func nearestInstance(for entry: FinancialEntry) -> Date {
-        let instances = computeInstances(for: entry)
+    private func nearestInstance(for scheduled: ScheduledTransaction) -> Date {
+        let instances = computeInstances(for: scheduled)
         let cal = Calendar.current
         guard !instances.isEmpty else { return Date() }
         let anchor = cal.date(from: DateComponents(year: defaultYear, month: defaultMonth, day: 15)) ?? Date()
@@ -1356,9 +1356,11 @@ private struct TransactionEditorView: View {
             selectedDueDate = txn.dueDate
             tags = txn.tags
             note = txn.note ?? ""
-            selectedEntryID = txn.entryID
-            if let entryID = txn.entryID, let entry = viewModel.financialEntries[entryID], entry.isRecurring {
-                let instances = computeInstances(for: entry)
+            selectedScheduledTransactionID = txn.scheduledTransactionID
+            if let stID = txn.scheduledTransactionID,
+                let scheduled = viewModel.scheduledTransactions[stID],
+                scheduled.isRecurring {
+                let instances = computeInstances(for: scheduled)
                 if let resolved = FinancialScheduling.matchingOccurrence(
                     in: instances,
                     forStoredDueDate: txn.dueDate,
@@ -1367,18 +1369,18 @@ private struct TransactionEditorView: View {
                     selectedDueDate = resolved
                 }
             }
-        } else if let entryID = prefilledEntryID {
-            selectedEntryID = entryID
-            if let entry = viewModel.financialEntries[entryID] {
-                name = entry.name
-                type = entry.type
-                amount = String(format: "%.2f", entry.amount)
-                tags = entry.tags
+        } else if let stID = prefilledScheduledTransactionID {
+            selectedScheduledTransactionID = stID
+            if let scheduled = viewModel.scheduledTransactions[stID] {
+                name = scheduled.name
+                type = scheduled.type
+                amount = String(format: "%.2f", scheduled.amount)
+                tags = scheduled.tags
             }
             if let prefilled = prefilledDueDate {
                 selectedDueDate = prefilled
-                if let entry = viewModel.financialEntries[entryID], entry.isRecurring {
-                    let instances = computeInstances(for: entry)
+                if let scheduled = viewModel.scheduledTransactions[stID], scheduled.isRecurring {
+                    let instances = computeInstances(for: scheduled)
                     if let resolved = FinancialScheduling.matchingOccurrence(
                         in: instances,
                         forStoredDueDate: prefilled,
@@ -1396,7 +1398,7 @@ private struct TransactionEditorView: View {
 
         let saved = FinancialTransaction(
             id: transaction?.id ?? UUID(),
-            entryID: selectedEntryID,
+            scheduledTransactionID: selectedScheduledTransactionID,
             name: name.trimmingCharacters(in: .whitespaces),
             amount: amountValue,
             type: type,
@@ -1883,7 +1885,7 @@ private struct MonthlySummaryView: View {
 
             Divider()
 
-            // Expected vs actual for entries
+            // Expected vs actual for scheduled transactions
             let dues = viewModel.expectedDues(month: month, year: year)
 
             if !dues.isEmpty {
@@ -1891,9 +1893,9 @@ private struct MonthlySummaryView: View {
                     Text("Expected vs Actual")
                         .font(.system(size: 14, weight: .semibold))
 
-                    ForEach(dues, id: \.entry.id) { due in
+                    ForEach(dues, id: \.scheduled.id) { due in
                         let paid = viewModel.financialTransactions.values.contains { txn in
-                            txn.entryID == due.entry.id &&
+                            txn.scheduledTransactionID == due.scheduled.id &&
                             Calendar.current.isDate(txn.dueDate, inSameDayAs: due.date)
                         }
                         HStack {
@@ -1901,15 +1903,15 @@ private struct MonthlySummaryView: View {
                                 .foregroundStyle(paid ? .green : .secondary)
                                 .font(.system(size: 12))
 
-                            Text(due.entry.name)
+                            Text(due.scheduled.name)
                                 .font(.system(size: 13))
                             Spacer()
                             Text(due.date, style: .date)
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
-                            Text(formatAmount(due.entry.amount))
+                            Text(formatAmount(due.scheduled.amount))
                                 .font(.system(size: 13, design: .monospaced))
-                                .foregroundStyle(due.entry.type == .income ? .green : .primary)
+                                .foregroundStyle(due.scheduled.type == .income ? .green : .primary)
                         }
                     }
                 }
@@ -2025,7 +2027,7 @@ private struct UpcomingDuesView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Record") {
                             recordTransaction(
-                                for: pending.entry,
+                                for: pending.scheduled,
                                 dueDate: pending.dueDate,
                                 recordedOn: customRecordDate
                             )
@@ -2084,7 +2086,7 @@ private struct UpcomingDuesView: View {
         if month > 12 { month = 1; year += 1 }
     }
 
-    private var dues: [(entry: FinancialEntry, date: Date)] {
+    private var dues: [(scheduled: ScheduledTransaction, date: Date)] {
         viewModel.expectedDues(month: month, year: year)
     }
 
@@ -2104,24 +2106,24 @@ private struct UpcomingDuesView: View {
                     }
                     .frame(maxWidth: .infinity)
                 } else {
-                    ForEach(dues, id: \.entry.id) { due in
+                    ForEach(dues, id: \.scheduled.id) { due in
                         DueRow(
-                            entry: due.entry,
+                            scheduled: due.scheduled,
                             date: due.date,
-                            isPaid: isPaid(entryID: due.entry.id, dueDate: due.date),
+                            isPaid: isPaid(scheduledTransactionID: due.scheduled.id, dueDate: due.date),
                             onRecordFirstWorkingDate: {
                                 let recordDate = FinancialScheduling.firstWorkingDateOnOrAfter(due.date)
-                                recordTransaction(for: due.entry, dueDate: due.date, recordedOn: recordDate)
+                                recordTransaction(for: due.scheduled, dueDate: due.date, recordedOn: recordDate)
                             },
                             onRecordDueDate: {
-                                recordTransaction(for: due.entry, dueDate: due.date, recordedOn: due.date)
+                                recordTransaction(for: due.scheduled, dueDate: due.date, recordedOn: due.date)
                             },
                             onRecordToday: {
-                                recordTransaction(for: due.entry, dueDate: due.date, recordedOn: Date())
+                                recordTransaction(for: due.scheduled, dueDate: due.date, recordedOn: Date())
                             },
                             onRecordCustomDate: {
                                 customRecordDate = due.date
-                                pendingCustomRecord = PendingCustomRecord(entry: due.entry, dueDate: due.date)
+                                pendingCustomRecord = PendingCustomRecord(scheduled: due.scheduled, dueDate: due.date)
                             }
                         )
                         Divider()
@@ -2131,19 +2133,19 @@ private struct UpcomingDuesView: View {
         }
     }
 
-    private func isPaid(entryID: UUID, dueDate: Date) -> Bool {
+    private func isPaid(scheduledTransactionID: UUID, dueDate: Date) -> Bool {
         viewModel.financialTransactions.values.contains { txn in
-            txn.entryID == entryID &&
+            txn.scheduledTransactionID == scheduledTransactionID &&
             Calendar.current.isDate(txn.dueDate, inSameDayAs: dueDate)
         }
     }
 
-    private func recordTransaction(for entry: FinancialEntry, dueDate: Date, recordedOn: Date) {
+    private func recordTransaction(for scheduled: ScheduledTransaction, dueDate: Date, recordedOn: Date) {
         let txn = FinancialTransaction(
-            entryID: entry.id,
-            name: entry.name,
-            amount: entry.amount,
-            type: entry.type,
+            scheduledTransactionID: scheduled.id,
+            name: scheduled.name,
+            amount: scheduled.amount,
+            type: scheduled.type,
             date: recordedOn,
             dueDate: dueDate
         )
@@ -2154,12 +2156,12 @@ private struct UpcomingDuesView: View {
 
 private struct PendingCustomRecord: Identifiable {
     let id = UUID()
-    let entry: FinancialEntry
+    let scheduled: ScheduledTransaction
     let dueDate: Date
 }
 
 private struct DueRow: View {
-    let entry: FinancialEntry
+    let scheduled: ScheduledTransaction
     let date: Date
     let isPaid: Bool
     let onRecordFirstWorkingDate: () -> Void
@@ -2175,18 +2177,18 @@ private struct DueRow: View {
                 .frame(width: 60, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.name.isEmpty ? "Untitled" : entry.name)
+                Text(scheduled.name.isEmpty ? "Untitled" : scheduled.name)
                     .font(.system(size: 14, weight: .medium))
-                Text(entry.recurrenceDescription)
+                Text(scheduled.recurrenceDescription)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            Text(entry.type == .income ? "+\(formatAmount(entry.amount))" : "-\(formatAmount(entry.amount))")
+            Text(scheduled.type == .income ? "+\(formatAmount(scheduled.amount))" : "-\(formatAmount(scheduled.amount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                .foregroundStyle(entry.type == .income ? .green : .primary)
+                .foregroundStyle(scheduled.type == .income ? .green : .primary)
 
             if isPaid {
                 Label("Paid", systemImage: "checkmark.circle.fill")

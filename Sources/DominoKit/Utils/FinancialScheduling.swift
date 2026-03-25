@@ -20,14 +20,14 @@ package enum FinancialScheduling {
 
     /// Builds a sorted list of recurrence instances around a **view** month (not “today”), for pickers.
     package static func recurrenceInstances(
-        for entry: FinancialEntry,
+        for scheduled: ScheduledTransaction,
         centerMonth: Int,
         centerYear: Int,
         monthOffsetRange: ClosedRange<Int> = -4...4,
         calendar: Calendar = .current
     ) -> [Date] {
-        guard var rec = entry.recurrence else { return [entry.createdAt] }
-        rec.startDate = entry.createdAt
+        guard var rec = scheduled.recurrence else { return [scheduled.createdAt] }
+        rec.startDate = scheduled.createdAt
 
         var results: [Date] = []
         for offset in monthOffsetRange {

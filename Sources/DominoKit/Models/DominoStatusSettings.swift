@@ -138,22 +138,22 @@ struct DominoDocument: Codable {
     var format: Int
     var nodes: [DominoNode]
     var settings: DominoStatusSettings?
-    var financialEntries: [FinancialEntry]?
+    var scheduledTransactions: [ScheduledTransaction]?
     var financialTransactions: [FinancialTransaction]?
     var financialBudgets: [FinancialBudget]?
 
     init(
-        format: Int = 3,
+        format: Int = 4,
         nodes: [DominoNode],
         settings: DominoStatusSettings?,
-        financialEntries: [FinancialEntry]? = nil,
+        scheduledTransactions: [ScheduledTransaction]? = nil,
         financialTransactions: [FinancialTransaction]? = nil,
         financialBudgets: [FinancialBudget]? = nil
     ) {
         self.format = format
         self.nodes = nodes
         self.settings = settings
-        self.financialEntries = financialEntries
+        self.scheduledTransactions = scheduledTransactions
         self.financialTransactions = financialTransactions
         self.financialBudgets = financialBudgets
     }
