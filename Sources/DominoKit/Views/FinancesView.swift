@@ -5,8 +5,8 @@ import SwiftUI
 private enum FinancesTab: String, CaseIterable, Identifiable {
     case scheduledTransactions
     case transactions
+    case calendar
     case budgets
-    case summary
 
     var id: String { rawValue }
 
@@ -14,8 +14,8 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
         switch self {
         case .scheduledTransactions: "Scheduled"
         case .transactions: "Transactions"
+        case .calendar: "Calendar"
         case .budgets: "Budgets"
-        case .summary: "Summary"
         }
     }
 
@@ -23,8 +23,8 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
         switch self {
         case .scheduledTransactions: "list.bullet.rectangle"
         case .transactions: "arrow.left.arrow.right"
+        case .calendar: "calendar"
         case .budgets: "wallet.bifold"
-        case .summary: "chart.pie"
         }
     }
 }
@@ -86,10 +86,10 @@ package struct FinancesView: View {
             ScheduledTransactionsListView(viewModel: viewModel)
         case .transactions:
             TransactionsListView(viewModel: viewModel)
+        case .calendar:
+            FinanceCalendarView(viewModel: viewModel)
         case .budgets:
             BudgetsListView(viewModel: viewModel)
-        case .summary:
-            MonthlySummaryView(viewModel: viewModel)
         }
     }
 }
@@ -1951,401 +1951,6 @@ private struct BudgetEditorView: View {
     private func normalizedTagKey(_ tag: String) -> String {
         tag.trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
-}
-
-// MARK: - Scheduled due recording (shared)
-
-@MainActor
-private enum FinancialScheduledRecording {
-    static func isPaid(
-        viewModel: DominoViewModel,
-        scheduledTransactionID: UUID,
-        dueDate: Date,
-        calendar: Calendar = .current
-    ) -> Bool {
-        viewModel.financialTransactions.values.contains { txn in
-            txn.scheduledTransactionID == scheduledTransactionID &&
-            calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
-        }
-    }
-
-    static func record(
-        viewModel: DominoViewModel,
-        scheduled: ScheduledTransaction,
-        dueDate: Date,
-        recordedOn: Date
-    ) {
-        let txn = FinancialTransaction(
-            scheduledTransactionID: scheduled.id,
-            name: scheduled.name,
-            amount: scheduled.amount,
-            type: scheduled.type,
-            date: recordedOn,
-            dueDate: dueDate
-        )
-        viewModel.addFinancialTransaction(txn)
-    }
-}
-
-private struct PendingCustomRecord: Identifiable {
-    let id = UUID()
-    let scheduled: ScheduledTransaction
-    let dueDate: Date
-}
-
-private struct CustomFinancialRecordDateSheet: View {
-    @Binding var customRecordDate: Date
-    let onRecord: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                DatePicker(
-                    "Record date",
-                    selection: $customRecordDate,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.graphical)
-
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Custom Record Date")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Record", action: onRecord)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Monthly Summary
-
-private struct MonthlySummaryView: View {
-    @ObservedObject var viewModel: DominoViewModel
-    @State private var month: Int
-    @State private var year: Int
-    @State private var pendingCustomRecord: PendingCustomRecord?
-    @State private var customRecordDate: Date = Date()
-
-    init(viewModel: DominoViewModel) {
-        self.viewModel = viewModel
-        let now = Date()
-        let comps = Calendar.current.dateComponents([.year, .month], from: now)
-        _month = State(initialValue: comps.month ?? 1)
-        _year = State(initialValue: comps.year ?? 2026)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                summaryContent
-                    .padding(20)
-            }
-        }
-        .sheet(item: $pendingCustomRecord) { pending in
-            CustomFinancialRecordDateSheet(
-                customRecordDate: $customRecordDate,
-                onRecord: {
-                    FinancialScheduledRecording.record(
-                        viewModel: viewModel,
-                        scheduled: pending.scheduled,
-                        dueDate: pending.dueDate,
-                        recordedOn: customRecordDate
-                    )
-                    pendingCustomRecord = nil
-                },
-                onCancel: { pendingCustomRecord = nil }
-            )
-        }
-    }
-
-    private var dues: [(scheduled: ScheduledTransaction, date: Date)] {
-        viewModel.expectedDues(month: month, year: year)
-    }
-
-    private var header: some View {
-        HStack {
-            Text("Monthly Summary")
-                .font(.system(size: 16, weight: .semibold))
-            Spacer()
-
-            HStack(spacing: 4) {
-                Button {
-                    previousMonth()
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .buttonStyle(.borderless)
-
-                Text(monthYearLabel)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 120)
-
-                Button {
-                    nextMonth()
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.borderless)
-            }
-        }
-        .padding(12)
-    }
-
-    private var monthYearLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        let comps = DateComponents(year: year, month: month, day: 1)
-        guard let date = Calendar.current.date(from: comps) else { return "" }
-        return formatter.string(from: date)
-    }
-
-    private func previousMonth() {
-        month -= 1
-        if month < 1 { month = 12; year -= 1 }
-    }
-
-    private func nextMonth() {
-        month += 1
-        if month > 12 { month = 1; year += 1 }
-    }
-
-    private var summary: (income: Double, expenses: Double, net: Double) {
-        viewModel.monthlySummary(month: month, year: year)
-    }
-
-    private var budgetRows: [(budget: FinancialBudget, spent: Double, remaining: Double)] {
-        viewModel.budgetBreakdownForMonth(month: month, year: year)
-    }
-
-    private var unbudgetedSpend: Double {
-        viewModel.unbudgetedExpenseForMonth(month: month, year: year)
-    }
-
-    private var summaryContent: some View {
-        VStack(spacing: 20) {
-            HStack(spacing: 16) {
-                summaryCard(title: "Income", amount: summary.income, color: .green)
-                summaryCard(title: "Expenses", amount: summary.expenses, color: .red)
-                summaryCard(title: "Net", amount: summary.net, color: summary.net >= 0 ? .green : .red)
-            }
-
-            if !budgetRows.isEmpty {
-                Divider()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Budget Health")
-                        .font(.system(size: 14, weight: .semibold))
-
-                    ForEach(budgetRows, id: \.budget.id) { row in
-                        HStack {
-                            Text(row.budget.name)
-                                .font(.system(size: 13))
-                            Spacer()
-                            Text("\(formatAmount(row.spent)) / \(formatAmount(row.budget.amount))")
-                                .font(.system(size: 12, design: .monospaced))
-                            Text("Remaining \(formatAmount(row.remaining))")
-                                .font(.system(size: 11))
-                                .foregroundStyle(row.remaining < 0 ? .red : .secondary)
-                        }
-                    }
-
-                    if unbudgetedSpend > 0 {
-                        HStack {
-                            Text("Unbudgeted spend")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(formatAmount(unbudgetedSpend))
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Scheduled dues")
-                    .font(.system(size: 14, weight: .semibold))
-                    .padding(.bottom, 8)
-
-                if dues.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.secondary)
-                        Text("No dues this month")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                } else {
-                    ForEach(Array(dues.enumerated()), id: \.offset) { _, due in
-                        DueRow(
-                            scheduled: due.scheduled,
-                            date: due.date,
-                            isPaid: FinancialScheduledRecording.isPaid(
-                                viewModel: viewModel,
-                                scheduledTransactionID: due.scheduled.id,
-                                dueDate: due.date
-                            ),
-                            onRecordFirstWorkingDate: {
-                                let recordDate = FinancialScheduling.firstWorkingDateOnOrAfter(due.date)
-                                FinancialScheduledRecording.record(
-                                    viewModel: viewModel,
-                                    scheduled: due.scheduled,
-                                    dueDate: due.date,
-                                    recordedOn: recordDate
-                                )
-                            },
-                            onRecordDueDate: {
-                                FinancialScheduledRecording.record(
-                                    viewModel: viewModel,
-                                    scheduled: due.scheduled,
-                                    dueDate: due.date,
-                                    recordedOn: due.date
-                                )
-                            },
-                            onRecordToday: {
-                                FinancialScheduledRecording.record(
-                                    viewModel: viewModel,
-                                    scheduled: due.scheduled,
-                                    dueDate: due.date,
-                                    recordedOn: Date()
-                                )
-                            },
-                            onRecordCustomDate: {
-                                customRecordDate = due.date
-                                pendingCustomRecord = PendingCustomRecord(scheduled: due.scheduled, dueDate: due.date)
-                            }
-                        )
-                        Divider()
-                    }
-                }
-            }
-        }
-    }
-
-    private func summaryCard(title: String, amount: Double, color: Color) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(formatAmount(amount))
-                .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                .foregroundStyle(color)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(color.opacity(0.08))
-        }
-    }
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        let prefix = amount >= 0 ? "$" : "-$"
-        return prefix + (formatter.string(from: NSNumber(value: abs(amount))) ?? "\(abs(amount))")
-    }
-}
-
-private struct DueRow: View {
-    let scheduled: ScheduledTransaction
-    let date: Date
-    let isPaid: Bool
-    let onRecordFirstWorkingDate: () -> Void
-    let onRecordDueDate: () -> Void
-    let onRecordToday: () -> Void
-    let onRecordCustomDate: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 6) {
-                Text(Self.weekdayFormatter.string(from: date))
-                    .lineLimit(1)
-                    .frame(width: 28, alignment: .leading)
-                Text(Self.monthDayFormatter.string(from: date))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .frame(width: 44, alignment: .leading)
-            }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .frame(width: 84, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(scheduled.name.isEmpty ? "Untitled" : scheduled.name)
-                    .font(.system(size: 14, weight: .medium))
-                Text(scheduled.recurrenceDescription)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Text(scheduled.type == .income ? "+\(formatAmount(scheduled.amount))" : "-\(formatAmount(scheduled.amount))")
-                .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                .foregroundStyle(scheduled.type == .income ? .green : .primary)
-
-            if isPaid {
-                Label("Paid", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.green)
-            } else {
-                Menu("Record") {
-                    Button("Record on first working day on or after the due date") {
-                        onRecordFirstWorkingDate()
-                    }
-                    Button("Record on due date") {
-                        onRecordDueDate()
-                    }
-                    Button("Record on Today") {
-                        onRecordToday()
-                    }
-                    Button("Record on custom date") {
-                        onRecordCustomDate()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    private static let weekdayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "EEE"
-        return f
-    }()
-
-    private static let monthDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
     }
 }
 

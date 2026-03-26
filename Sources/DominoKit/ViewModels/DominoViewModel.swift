@@ -1189,6 +1189,41 @@ package final class DominoViewModel: ObservableObject {
         return results.sorted { $0.date < $1.date }
     }
 
+    /// Expected (scheduled transaction, occurrence date) pairs for every month intersecting `rangeStart...rangeEnd`, filtered to occurrence days in that range.
+    package func expectedDues(from rangeStart: Date, to rangeEnd: Date, calendar: Calendar = .current) -> [(scheduled: ScheduledTransaction, date: Date)] {
+        let fromDay = calendar.startOfDay(for: rangeStart)
+        let toDay = calendar.startOfDay(for: rangeEnd)
+        guard fromDay <= toDay else { return [] }
+
+        var year = calendar.component(.year, from: fromDay)
+        var month = calendar.component(.month, from: fromDay)
+        let endYear = calendar.component(.year, from: toDay)
+        let endMonth = calendar.component(.month, from: toDay)
+
+        var results: [(scheduled: ScheduledTransaction, date: Date)] = []
+        while year < endYear || (year == endYear && month <= endMonth) {
+            results.append(contentsOf: expectedDues(month: month, year: year, calendar: calendar))
+            month += 1
+            if month > 12 {
+                month = 1
+                year += 1
+            }
+        }
+
+        return results.filter { pair in
+            let d = calendar.startOfDay(for: pair.date)
+            return d >= fromDay && d <= toDay
+        }.sorted { $0.date < $1.date }
+    }
+
+    /// Whether a recorded financial transaction already covers this scheduled occurrence (same calendar day as `dueDate`).
+    package func isScheduledOccurrencePaid(scheduledTransactionID: UUID, dueDate: Date, calendar: Calendar = .current) -> Bool {
+        financialTransactions.values.contains { txn in
+            txn.scheduledTransactionID == scheduledTransactionID &&
+                calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
+        }
+    }
+
     package func monthlySummary(month: Int, year: Int, calendar: Calendar = .current) -> (income: Double, expenses: Double, net: Double) {
         let transactions = transactionsForMonth(month: month, year: year, calendar: calendar)
         let income = transactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
