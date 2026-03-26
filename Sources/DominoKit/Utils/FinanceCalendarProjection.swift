@@ -4,23 +4,28 @@ import Foundation
 package struct FinanceCalendarDueLine: Identifiable, Equatable {
     package let id: String
     package let scheduled: ScheduledTransaction
-    /// Scheduled occurrence due date; the column day is the due date when unpaid, or the paid-on date when paid.
+    /// Scheduled occurrence due date; the column day is the due day when unpaid, or the paid-on date when paid.
     package let occurrenceDueDate: Date
     package let isPaid: Bool
     /// Date the payment was recorded (`FinancialTransaction.date`), when known.
     package let paidRecordedDate: Date?
+    /// Duplicate row on **today** for unpaid items whose due date is before today (does not affect column totals).
+    package let isRollupOnToday: Bool
 
     package init(
         scheduled: ScheduledTransaction,
         occurrenceDueDate: Date,
         isPaid: Bool,
-        paidRecordedDate: Date? = nil
+        paidRecordedDate: Date? = nil,
+        isRollupOnToday: Bool = false
     ) {
         self.scheduled = scheduled
         self.occurrenceDueDate = occurrenceDueDate
         self.isPaid = isPaid
         self.paidRecordedDate = paidRecordedDate
-        self.id = "\(scheduled.id.uuidString)|\(occurrenceDueDate.timeIntervalSinceReferenceDate)"
+        self.isRollupOnToday = isRollupOnToday
+        let base = "\(scheduled.id.uuidString)|\(occurrenceDueDate.timeIntervalSinceReferenceDate)"
+        self.id = isRollupOnToday ? "\(base)|rollupToday" : base
     }
 }
 
@@ -31,20 +36,22 @@ package struct FinanceCalendarDayColumn: Identifiable {
     package let startOfDayBalance: Double
     /// Balance after applying that day’s expected income (`startOfDayBalance + incomeTotal`).
     package let inBalanceAfterIncome: Double
-    /// Unpaid income only (used for balance and summary).
+    /// Unpaid income due **this calendar day** only (not overdue rollup).
     package let incomeTotal: Double
     package let incomeLines: [FinanceCalendarDueLine]
     package let expenseLines: [FinanceCalendarDueLine]
-    /// Unpaid expenses only (used for balance and summary).
+    /// Unpaid expenses due **this calendar day** only (not overdue rollup).
     package let expenseTotal: Double
     package let endOfDayBalance: Double
+    /// Unpaid amounts due before today, mirrored on today’s column (expenses reduce today’s start balance).
+    package let overdueUnpaidExpenseTotal: Double
+    package let overdueUnpaidIncomeTotal: Double
 }
 
 package enum FinanceCalendarProjection {
     /// Builds one column per calendar day from `rangeStart` through `rangeEnd` (start-of-day normalized).
-    /// **Unpaid** lines sit on the due day; **paid** lines sit on the payment day (`paidRecordedOn`) when it falls in the window, else on the due day. **Unpaid** amounts drive balances.
-    /// `startingBalanceAtTodayStart` is the balance at the **start** of `today`’s calendar day; earlier columns are
-    /// back-filled so the running balance matches that anchor.
+    /// Unpaid lines sit on the due day (or payment day when paid). Unpaid **past-due** items also appear on **today**
+    /// with `isRollupOnToday`; today’s `startOfDayBalance` is reduced by overdue expenses and increased by overdue income.
     package static func buildColumns(
         calendar: Calendar,
         rangeStart: Date,
@@ -68,6 +75,10 @@ package enum FinanceCalendarProjection {
         }
 
         var buckets: [Date: Bucket] = [:]
+        var overdueMirrorIncomeLines: [FinanceCalendarDueLine] = []
+        var overdueMirrorExpenseLines: [FinanceCalendarDueLine] = []
+        var overdueIncomeSum: Double = 0
+        var overdueExpenseSum: Double = 0
 
         for (scheduled, dueDate) in allDues {
             let dueDay = calendar.startOfDay(for: dueDate)
@@ -93,7 +104,8 @@ package enum FinanceCalendarProjection {
                 scheduled: scheduled,
                 occurrenceDueDate: dueDate,
                 isPaid: paid,
-                paidRecordedDate: recorded
+                paidRecordedDate: recorded,
+                isRollupOnToday: false
             )
 
             var bucket = buckets[bucketDay] ?? Bucket()
@@ -110,6 +122,24 @@ package enum FinanceCalendarProjection {
                 bucket.expenseLines.append(line)
             }
             buckets[bucketDay] = bucket
+
+            if !paid, dueDay < todayStart, dueDay >= windowStart, dueDay <= windowEnd {
+                let rollup = FinanceCalendarDueLine(
+                    scheduled: scheduled,
+                    occurrenceDueDate: dueDate,
+                    isPaid: false,
+                    paidRecordedDate: nil,
+                    isRollupOnToday: true
+                )
+                switch scheduled.type {
+                case .income:
+                    overdueIncomeSum += scheduled.amount
+                    overdueMirrorIncomeLines.append(rollup)
+                case .expense:
+                    overdueExpenseSum += scheduled.amount
+                    overdueMirrorExpenseLines.append(rollup)
+                }
+            }
         }
 
         func sortedLines(_ lines: [FinanceCalendarDueLine]) -> [FinanceCalendarDueLine] {
@@ -142,10 +172,28 @@ package enum FinanceCalendarProjection {
             let bucket = buckets[dayCursor] ?? Bucket()
             let incomeTotal = bucket.incomeTotalUnpaid
             let expenseTotal = bucket.expenseTotalUnpaid
-            let startOfDayBalance = balance
+            let isTodayCol = calendar.isDate(dayCursor, inSameDayAs: todayStart)
+
+            let startOfDayBalance: Double
+            if isTodayCol {
+                startOfDayBalance = balance - overdueExpenseSum + overdueIncomeSum
+            } else {
+                startOfDayBalance = balance
+            }
+
             let inBalanceAfterIncome = startOfDayBalance + incomeTotal
             balance = inBalanceAfterIncome - expenseTotal
-            let sorted = sortedBucket(bucket)
+
+            let sortedIncome: [FinanceCalendarDueLine]
+            let sortedExpense: [FinanceCalendarDueLine]
+            if isTodayCol {
+                sortedIncome = sortedLines(overdueMirrorIncomeLines) + sortedLines(bucket.incomeLines)
+                sortedExpense = sortedLines(overdueMirrorExpenseLines) + sortedLines(bucket.expenseLines)
+            } else {
+                let s = sortedBucket(bucket)
+                sortedIncome = s.income
+                sortedExpense = s.expense
+            }
 
             columns.append(
                 FinanceCalendarDayColumn(
@@ -153,10 +201,12 @@ package enum FinanceCalendarProjection {
                     startOfDayBalance: startOfDayBalance,
                     inBalanceAfterIncome: inBalanceAfterIncome,
                     incomeTotal: incomeTotal,
-                    incomeLines: sorted.income,
-                    expenseLines: sorted.expense,
+                    incomeLines: sortedIncome,
+                    expenseLines: sortedExpense,
                     expenseTotal: expenseTotal,
-                    endOfDayBalance: balance
+                    endOfDayBalance: balance,
+                    overdueUnpaidExpenseTotal: isTodayCol ? overdueExpenseSum : 0,
+                    overdueUnpaidIncomeTotal: isTodayCol ? overdueIncomeSum : 0
                 )
             )
 

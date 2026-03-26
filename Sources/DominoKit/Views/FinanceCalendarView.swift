@@ -101,6 +101,7 @@ package struct FinanceCalendarView: View {
                             dayColumn(
                                 column: column,
                                 isToday: cal.isDate(column.displayDayStart, inSameDayAs: now),
+                                todayStart: todayAnchor,
                                 middleHeight: middleScrollHeight
                             )
                             .frame(width: columnWidth)
@@ -128,7 +129,12 @@ package struct FinanceCalendarView: View {
         }
     }
 
-    private func dayColumn(column: FinanceCalendarDayColumn, isToday: Bool, middleHeight: CGFloat) -> some View {
+    private func dayColumn(
+        column: FinanceCalendarDayColumn,
+        isToday: Bool,
+        todayStart: Date,
+        middleHeight: CGFloat
+    ) -> some View {
         let cal = calendar
         return VStack(alignment: .leading, spacing: 0) {
             dayHeader(date: column.displayDayStart, isToday: isToday, calendar: cal)
@@ -146,10 +152,10 @@ package struct FinanceCalendarView: View {
                             .padding(.vertical, 12)
                     } else {
                         ForEach(column.incomeLines) { line in
-                            transactionEventBlock(line, displayDayStart: column.displayDayStart)
+                            transactionEventBlock(line, displayDayStart: column.displayDayStart, todayStart: todayStart)
                         }
                         ForEach(column.expenseLines) { line in
-                            transactionEventBlock(line, displayDayStart: column.displayDayStart)
+                            transactionEventBlock(line, displayDayStart: column.displayDayStart, todayStart: todayStart)
                         }
                     }
                 }
@@ -173,6 +179,9 @@ package struct FinanceCalendarView: View {
                     Text("Out \(formatAmount(column.expenseTotal, positivePrefix: ""))")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                    if isToday, column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
+                        overdueStartCaption(column: column)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -214,8 +223,27 @@ package struct FinanceCalendarView: View {
         .padding(.top, 8)
     }
 
-    private func transactionEventBlock(_ line: FinanceCalendarDueLine, displayDayStart: Date) -> some View {
-        let colors = eventColors(for: line)
+    private func overdueStartCaption(column: FinanceCalendarDayColumn) -> some View {
+        Group {
+            if column.overdueUnpaidExpenseTotal > 0 {
+                Text("Overdue out \(formatAmount(-column.overdueUnpaidExpenseTotal, positivePrefix: ""))")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+            }
+            if column.overdueUnpaidIncomeTotal > 0 {
+                Text("Overdue in \(formatAmount(column.overdueUnpaidIncomeTotal, positivePrefix: "+"))")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func transactionEventBlock(_ line: FinanceCalendarDueLine, displayDayStart: Date, todayStart: Date) -> some View {
+        let cal = calendar
+        let colStart = cal.startOfDay(for: displayDayStart)
+        let today = cal.startOfDay(for: todayStart)
+        let isPastUnpaidStriped = !line.isPaid && !line.isRollupOnToday && colStart < today
+        let colors = eventColors(for: line, rollupOnToday: line.isRollupOnToday)
         let isIncome = line.scheduled.type == .income
         let due = line.occurrenceDueDate
         let scheduled = line.scheduled
@@ -228,6 +256,11 @@ package struct FinanceCalendarView: View {
                     .frame(width: 3)
 
                 VStack(alignment: .leading, spacing: 4) {
+                    if line.isRollupOnToday {
+                        Text("Overdue")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.orange)
+                    }
                     Text(scheduled.name.isEmpty ? "Untitled" : scheduled.name)
                         .font(.system(size: 11, weight: .semibold))
                         .lineLimit(4)
@@ -239,10 +272,10 @@ package struct FinanceCalendarView: View {
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(isIncome ? Color.green : .primary)
 
-                    if !calendar.isDate(due, inSameDayAs: displayDayStart) {
+                    if line.isRollupOnToday || !cal.isDate(due, inSameDayAs: displayDayStart) {
                         Text("Due: \(Self.shortDueFormatter.string(from: due))")
                             .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(line.isRollupOnToday ? Color.orange.opacity(0.9) : .secondary)
                     }
                 }
                 .padding(.vertical, 6)
@@ -286,13 +319,23 @@ package struct FinanceCalendarView: View {
                 .contentShape(Rectangle())
             }
         }
+        .opacity(isPastUnpaidStriped ? 0.62 : 1)
         .background {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(colors.fill)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                .strokeBorder(
+                    line.isRollupOnToday ? Color.orange.opacity(0.65) : Color.primary.opacity(0.1),
+                    lineWidth: line.isRollupOnToday ? 1.25 : 0.5
+                )
+        }
+        .overlay {
+            if isPastUnpaidStriped {
+                FinanceCalendarPastDueStripeOverlay()
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
         }
     }
 
@@ -308,7 +351,11 @@ package struct FinanceCalendarView: View {
         viewModel.addFinancialTransaction(txn)
     }
 
-    private func eventColors(for line: FinanceCalendarDueLine) -> (accent: Color, fill: Color) {
+    private func eventColors(for line: FinanceCalendarDueLine, rollupOnToday: Bool) -> (accent: Color, fill: Color) {
+        if rollupOnToday {
+            let amber = Color(red: 0.95, green: 0.55, blue: 0.12)
+            return (amber, amber.opacity(0.22))
+        }
         let pairs = line.scheduled.type == .income ? Self.incomeEventPairs : Self.expenseEventPairs
         let base = pairs[Self.stablePaletteIndex(line.id, count: pairs.count)]
         return (base, base.opacity(0.28))
@@ -384,6 +431,30 @@ package struct FinanceCalendarView: View {
         f.dateFormat = "MMM d"
         return f
     }()
+}
+
+/// Subtle diagonal fill like Calendar’s tentative / unanswered invites.
+private struct FinanceCalendarPastDueStripeOverlay: View {
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let spacing: CGFloat = 9
+                let band: CGFloat = 2.5
+                var x: CGFloat = -size.height
+                while x < size.width + size.height {
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x + size.height, y: size.height))
+                    path.addLine(to: CGPoint(x: x + size.height + band, y: size.height))
+                    path.addLine(to: CGPoint(x: x + band, y: 0))
+                    path.closeSubpath()
+                    context.fill(path, with: .color(Color.primary.opacity(0.11)))
+                    x += spacing
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 private struct FinanceCalendarCustomRecordPayload: Identifiable {
