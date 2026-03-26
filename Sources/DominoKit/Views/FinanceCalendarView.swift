@@ -26,7 +26,7 @@ package struct FinanceCalendarView: View {
             FinanceCalendarCustomRecordSheet(
                 dueDate: payload.dueDate,
                 onRecord: { picked in
-                    recordScheduledOccurrence(scheduled: payload.scheduled, dueDate: payload.dueDate, recordedOn: picked)
+                    recordCommitmentOccurrence(commitment: payload.commitment, dueDate: payload.dueDate, recordedOn: picked)
                     customRecordPayload = nil
                 },
                 onCancel: { customRecordPayload = nil }
@@ -44,40 +44,46 @@ package struct FinanceCalendarView: View {
               let rangeTo = cal.date(byAdding: .day, value: horizonDays, to: todayStart)
         else { return [] }
 
-        let oldestScheduled = viewModel.scheduledTransactions.values
+        let oldestCommitment = viewModel.commitments.values
             .map { cal.startOfDay(for: $0.createdAt) }
             .min()
-        let rangeFrom = oldestScheduled.map { max(historyCap, $0) } ?? historyCap
+        let oldestForecast = viewModel.forecasts.values
+            .map { cal.startOfDay(for: $0.createdAt) }
+            .min()
+        let oldestPlanning = [oldestCommitment, oldestForecast].compactMap { $0 }.min()
+        let rangeFrom = oldestPlanning.map { max(historyCap, $0) } ?? historyCap
 
         var paidOccurrenceKeys = Set<String>()
         var paidRecordedDateByKey: [String: Date] = [:]
         for txn in viewModel.financialTransactions.values {
-            guard let sid = txn.scheduledTransactionID else { continue }
-            let key = Self.scheduledOccurrenceKey(scheduledID: sid, dueDate: txn.dueDate, calendar: cal)
+            guard let sid = txn.commitmentID else { continue }
+            let key = Self.commitmentOccurrenceKey(commitmentID: sid, dueDate: txn.dueDate, calendar: cal)
             paidOccurrenceKeys.insert(key)
             paidRecordedDateByKey[key] = txn.date
         }
 
-        let dues = viewModel.expectedDues(from: rangeFrom, to: rangeTo, calendar: cal)
+        let commitmentOccurrences = viewModel.expectedCommitmentOccurrences(from: rangeFrom, to: rangeTo, calendar: cal)
+        let forecastOccurrences = viewModel.expectedForecastOccurrences(from: rangeFrom, to: rangeTo, calendar: cal)
         return FinanceCalendarProjection.buildColumns(
             calendar: cal,
             rangeStart: rangeFrom,
             rangeEnd: rangeTo,
             today: now,
-            allDues: dues,
+            allCommitments: commitmentOccurrences,
+            allForecasts: forecastOccurrences,
             isPaid: { id, due in
-                paidOccurrenceKeys.contains(Self.scheduledOccurrenceKey(scheduledID: id, dueDate: due, calendar: cal))
+                paidOccurrenceKeys.contains(Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal))
             },
             paidRecordedOn: { id, due in
-                paidRecordedDateByKey[Self.scheduledOccurrenceKey(scheduledID: id, dueDate: due, calendar: cal)]
+                paidRecordedDateByKey[Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal)]
             },
             startingBalanceAtTodayStart: appliedStartingBalance
         )
     }
 
-    private static func scheduledOccurrenceKey(scheduledID: UUID, dueDate: Date, calendar cal: Calendar) -> String {
+    private static func commitmentOccurrenceKey(commitmentID: UUID, dueDate: Date, calendar cal: Calendar) -> String {
         let day = cal.startOfDay(for: dueDate)
-        return "\(scheduledID.uuidString)|\(day.timeIntervalSinceReferenceDate)"
+        return "\(commitmentID.uuidString)|\(day.timeIntervalSinceReferenceDate)"
     }
 
     private var header: some View {
@@ -144,7 +150,9 @@ package struct FinanceCalendarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if column.incomeLines.isEmpty && column.expenseLines.isEmpty {
+                    let hasCommitments = !column.incomeLines.isEmpty || !column.expenseLines.isEmpty
+                    let hasForecasts = !column.forecastIncomeLines.isEmpty || !column.forecastExpenseLines.isEmpty
+                    if !hasCommitments && !hasForecasts {
                         Text("—")
                             .font(.system(size: 15))
                             .foregroundStyle(.tertiary)
@@ -156,6 +164,12 @@ package struct FinanceCalendarView: View {
                         }
                         ForEach(column.expenseLines) { line in
                             transactionEventBlock(line, displayDayStart: column.displayDayStart, todayStart: todayStart)
+                        }
+                        ForEach(column.forecastIncomeLines) { line in
+                            forecastEventBlock(line, displayDayStart: column.displayDayStart)
+                        }
+                        ForEach(column.forecastExpenseLines) { line in
+                            forecastEventBlock(line, displayDayStart: column.displayDayStart)
                         }
                     }
                 }
@@ -177,6 +191,16 @@ package struct FinanceCalendarView: View {
                     Text("Out \(formatAmount(column.expenseTotal, positivePrefix: ""))")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                    if column.forecastIncomeTotal > 0 {
+                        Text("Forecast in \(formatAmount(column.forecastIncomeTotal, positivePrefix: "+"))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    if column.forecastExpenseTotal > 0 {
+                        Text("Forecast out \(formatAmount(column.forecastExpenseTotal, positivePrefix: ""))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
                     if isToday, column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
                         overdueStartCaption(column: column)
                     }
@@ -240,10 +264,10 @@ package struct FinanceCalendarView: View {
         let cal = calendar
         let isOverdueRollupStriped = line.isRollupOnToday
         let colors = eventColors(for: line, todayStart: todayStart)
-        let isIncome = line.scheduled.type == .income
+        let isIncome = line.commitment.type == .income
         let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
         let due = line.occurrenceDueDate
-        let scheduled = line.scheduled
+        let commitment = line.commitment
         let trailingPadding: CGFloat = 30
 
         return ZStack(alignment: .topTrailing) {
@@ -263,14 +287,14 @@ package struct FinanceCalendarView: View {
                     .frame(width: 5)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(scheduled.name.isEmpty ? "Untitled" : scheduled.name)
+                    Text(commitment.name.isEmpty ? "Untitled" : commitment.name)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(4)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.trailing, trailingPadding)
 
-                    Text(isIncome ? "+\(formatPlainAmount(scheduled.amount))" : "−\(formatPlainAmount(scheduled.amount))")
+                    Text(isIncome ? "+\(formatPlainAmount(commitment.amount))" : "−\(formatPlainAmount(commitment.amount))")
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(amountColor)
 
@@ -296,17 +320,17 @@ package struct FinanceCalendarView: View {
             } else {
                 Menu {
                     Button("Record on first working day on or after the due date") {
-                        let recordedOn = FinancialScheduling.firstWorkingDateOnOrAfter(due, calendar: calendar)
-                        recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: recordedOn)
+                        let recordedOn = FinancialRecurrence.firstWorkingDateOnOrAfter(due, calendar: calendar)
+                        recordCommitmentOccurrence(commitment: commitment, dueDate: due, recordedOn: recordedOn)
                     }
                     Button("Record on due date") {
-                        recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: due)
+                        recordCommitmentOccurrence(commitment: commitment, dueDate: due, recordedOn: due)
                     }
                     Button("Record on Today") {
-                        recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: Date())
+                        recordCommitmentOccurrence(commitment: commitment, dueDate: due, recordedOn: Date())
                     }
                     Button("Record on custom date…") {
-                        customRecordPayload = FinanceCalendarCustomRecordPayload(scheduled: scheduled, dueDate: due)
+                        customRecordPayload = FinanceCalendarCustomRecordPayload(commitment: commitment, dueDate: due)
                     }
                 } label: {
                     Image(systemName: "plus.circle.fill")
@@ -330,12 +354,70 @@ package struct FinanceCalendarView: View {
         }
     }
 
-    private func recordScheduledOccurrence(scheduled: ScheduledTransaction, dueDate: Date, recordedOn: Date) {
+    private func forecastEventBlock(_ line: FinanceCalendarForecastLine, displayDayStart: Date) -> some View {
+        let cal = calendar
+        let isIncome = line.forecast.type == .income
+        let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
+        let occ = line.occurrenceDate
+        let forecast = line.forecast
+        let trailingPadding: CGFloat = 12
+
+        return ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Self.forecastAccent.opacity(0.35), lineWidth: 1)
+                }
+
+            HStack(alignment: .top, spacing: 0) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Self.forecastAccent.opacity(0.85))
+                    .frame(width: 5)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Forecast")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Self.forecastAccent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule(style: .continuous).fill(Self.forecastAccent.opacity(0.14)))
+
+                    Text(forecast.name.isEmpty ? "Untitled" : forecast.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(4)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.trailing, trailingPadding)
+
+                    Text(isIncome ? "+\(formatPlainAmount(forecast.amount))" : "−\(formatPlainAmount(forecast.amount))")
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(amountColor)
+
+                    if !cal.isDate(occ, inSameDayAs: displayDayStart) {
+                        Text("Day: \(Self.shortDueFormatter.string(from: occ))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 10)
+                .padding(.leading, 10)
+                .padding(.trailing, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
+    }
+
+    private func recordCommitmentOccurrence(commitment: Commitment, dueDate: Date, recordedOn: Date) {
         let txn = FinancialTransaction(
-            scheduledTransactionID: scheduled.id,
-            name: scheduled.name,
-            amount: scheduled.amount,
-            type: scheduled.type,
+            commitmentID: commitment.id,
+            name: commitment.name,
+            amount: commitment.amount,
+            type: commitment.type,
             date: recordedOn,
             dueDate: dueDate
         )
@@ -368,6 +450,7 @@ package struct FinanceCalendarView: View {
     private static let dueAccent = harmonizedExpenseRed
     /// Soft azure—cool like the emerald green, distinct from green/red amount text.
     private static let futureUnpaidAccent = Color(red: 0.22, green: 0.52, blue: 0.86)
+    private static let forecastAccent = Color(red: 0.45, green: 0.42, blue: 0.62)
 
     private func formatAmount(_ amount: Double, positivePrefix: String) -> String {
         let formatter = NumberFormatter()
@@ -439,8 +522,8 @@ private struct FinanceCalendarPastDueStripeOverlay: View {
 }
 
 private struct FinanceCalendarCustomRecordPayload: Identifiable {
-    var id: String { "\(scheduled.id.uuidString)|\(dueDate.timeIntervalSinceReferenceDate)" }
-    let scheduled: ScheduledTransaction
+    var id: String { "\(commitment.id.uuidString)|\(dueDate.timeIntervalSinceReferenceDate)" }
+    let commitment: Commitment
     let dueDate: Date
 }
 

@@ -108,7 +108,8 @@ package final class DominoViewModel: ObservableObject {
     @Published var canvasFocusRequest: NodeFocusRequest?
     @Published var tableFocusRequest: NodeFocusRequest?
     @Published var searchPresentationRequest: SearchPresentationRequest?
-    @Published var scheduledTransactions: [UUID: ScheduledTransaction] = [:]
+    @Published var commitments: [UUID: Commitment] = [:]
+    @Published var forecasts: [UUID: Forecast] = [:]
     @Published var financialTransactions: [UUID: FinancialTransaction] = [:]
     /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
     @Published private(set) var canvasRecenterToken: UInt64 = 0
@@ -683,7 +684,8 @@ package final class DominoViewModel: ObservableObject {
     private struct DecodedBoard {
         let nodes: [DominoNode]
         let fileStatusSettings: DominoStatusSettings?
-        let scheduledTransactions: [ScheduledTransaction]?
+        let commitments: [Commitment]?
+        let forecasts: [Forecast]?
         let financialTransactions: [FinancialTransaction]?
     }
 
@@ -701,7 +703,8 @@ package final class DominoViewModel: ObservableObject {
             return DecodedBoard(
                 nodes: migrated.nodes,
                 fileStatusSettings: migrated.fileStatusSettings ?? explicitFileSettings,
-                scheduledTransactions: document.scheduledTransactions,
+                commitments: document.commitments,
+                forecasts: document.forecasts,
                 financialTransactions: document.financialTransactions
             )
         }
@@ -711,7 +714,8 @@ package final class DominoViewModel: ObservableObject {
         return DecodedBoard(
             nodes: migrated.nodes,
             fileStatusSettings: migrated.fileStatusSettings,
-            scheduledTransactions: nil,
+            commitments: nil,
+            forecasts: nil,
             financialTransactions: nil
         )
     }
@@ -1027,7 +1031,8 @@ package final class DominoViewModel: ObservableObject {
 
     package func newBoard() {
         nodes.removeAll()
-        scheduledTransactions.removeAll()
+        commitments.removeAll()
+        forecasts.removeAll()
         financialTransactions.removeAll()
         fileStatusSettings = nil
         editingNodeID = nil
@@ -1069,12 +1074,14 @@ package final class DominoViewModel: ObservableObject {
     private func writeToFile(_ url: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
-        let scheduled = scheduledTransactions.values.isEmpty ? nil : Array(scheduledTransactions.values)
+        let commitmentList = commitments.values.isEmpty ? nil : Array(commitments.values)
+        let forecastList = forecasts.values.isEmpty ? nil : Array(forecasts.values)
         let transactions = financialTransactions.values.isEmpty ? nil : Array(financialTransactions.values)
         let document = DominoDocument(
             nodes: sortedNodes,
             settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings,
-            scheduledTransactions: scheduled,
+            commitments: commitmentList,
+            forecasts: forecastList,
             financialTransactions: transactions
         )
         guard let data = try? encoder.encode(document) else { return }
@@ -1087,9 +1094,10 @@ package final class DominoViewModel: ObservableObject {
             let loaded = decodeBoard(from: data)
         else { return }
         nodes = Dictionary(uniqueKeysWithValues: loaded.nodes.map { ($0.id, $0) })
-        scheduledTransactions = Dictionary(uniqueKeysWithValues: (loaded.scheduledTransactions ?? []).map { ($0.id, $0) })
+        commitments = Dictionary(uniqueKeysWithValues: (loaded.commitments ?? []).map { ($0.id, $0) })
+        forecasts = Dictionary(uniqueKeysWithValues: (loaded.forecasts ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })
-        backfillTransactionTagsFromScheduledTransactionsIfNeeded()
+        backfillTransactionTagsFromPlanningItemsIfNeeded()
         fileStatusSettings = loaded.fileStatusSettings
         editingNodeID = nil
         selectedNodeID = nil
@@ -1102,18 +1110,33 @@ package final class DominoViewModel: ObservableObject {
 
     // MARK: - Finances CRUD
 
-    package func addScheduledTransaction(_ scheduledTransaction: ScheduledTransaction) {
-        scheduledTransactions[scheduledTransaction.id] = scheduledTransaction
+    package func addCommitment(_ commitment: Commitment) {
+        commitments[commitment.id] = commitment
         isDirty = true
     }
 
-    package func updateScheduledTransaction(_ scheduledTransaction: ScheduledTransaction) {
-        scheduledTransactions[scheduledTransaction.id] = scheduledTransaction
+    package func updateCommitment(_ commitment: Commitment) {
+        commitments[commitment.id] = commitment
         isDirty = true
     }
 
-    package func deleteScheduledTransaction(_ id: UUID) {
-        scheduledTransactions.removeValue(forKey: id)
+    package func deleteCommitment(_ id: UUID) {
+        commitments.removeValue(forKey: id)
+        isDirty = true
+    }
+
+    package func addForecast(_ forecast: Forecast) {
+        forecasts[forecast.id] = forecast
+        isDirty = true
+    }
+
+    package func updateForecast(_ forecast: Forecast) {
+        forecasts[forecast.id] = forecast
+        isDirty = true
+    }
+
+    package func deleteForecast(_ id: UUID) {
+        forecasts.removeValue(forKey: id)
         isDirty = true
     }
 
@@ -1141,33 +1164,33 @@ package final class DominoViewModel: ObservableObject {
         }.sorted { $0.date < $1.date }
     }
 
-    package func activeScheduledTransactions(ofType type: ScheduledTransactionType) -> [ScheduledTransaction] {
-        scheduledTransactions.values.filter { $0.type == type && $0.isActive }
+    package func activeCommitments(ofType type: FinancialFlowType) -> [Commitment] {
+        commitments.values.filter { $0.type == type && $0.isActive }
             .sorted { $0.name < $1.name }
     }
 
-    /// Returns expected (scheduled transaction, occurrence date) pairs for a given month based on recurrence rules.
-    package func expectedDues(month: Int, year: Int, calendar: Calendar = .current) -> [(scheduled: ScheduledTransaction, date: Date)] {
-        var results: [(scheduled: ScheduledTransaction, date: Date)] = []
-        for scheduled in scheduledTransactions.values where scheduled.isActive {
-            if var rec = scheduled.recurrence {
-                rec.startDate = scheduled.createdAt
+    /// Expected (commitment, occurrence date) pairs for a given month based on recurrence rules.
+    package func expectedCommitmentOccurrences(month: Int, year: Int, calendar: Calendar = .current) -> [(commitment: Commitment, date: Date)] {
+        var results: [(commitment: Commitment, date: Date)] = []
+        for commitment in commitments.values where commitment.isActive {
+            if var rec = commitment.recurrence {
+                rec.startDate = commitment.createdAt
                 let dates = rec.occurrences(in: month, year: year, calendar: calendar)
                 for date in dates {
-                    results.append((scheduled: scheduled, date: date))
+                    results.append((commitment: commitment, date: date))
                 }
             } else {
-                let comps = calendar.dateComponents([.year, .month], from: scheduled.createdAt)
+                let comps = calendar.dateComponents([.year, .month], from: commitment.createdAt)
                 if comps.year == year && comps.month == month {
-                    results.append((scheduled: scheduled, date: scheduled.createdAt))
+                    results.append((commitment: commitment, date: commitment.createdAt))
                 }
             }
         }
         return results.sorted { $0.date < $1.date }
     }
 
-    /// Expected (scheduled transaction, occurrence date) pairs for every month intersecting `rangeStart...rangeEnd`, filtered to occurrence days in that range.
-    package func expectedDues(from rangeStart: Date, to rangeEnd: Date, calendar: Calendar = .current) -> [(scheduled: ScheduledTransaction, date: Date)] {
+    /// Expected commitment occurrences for every month intersecting `rangeStart...rangeEnd`, filtered to occurrence days in that range.
+    package func expectedCommitmentOccurrences(from rangeStart: Date, to rangeEnd: Date, calendar: Calendar = .current) -> [(commitment: Commitment, date: Date)] {
         let fromDay = calendar.startOfDay(for: rangeStart)
         let toDay = calendar.startOfDay(for: rangeEnd)
         guard fromDay <= toDay else { return [] }
@@ -1177,9 +1200,9 @@ package final class DominoViewModel: ObservableObject {
         let endYear = calendar.component(.year, from: toDay)
         let endMonth = calendar.component(.month, from: toDay)
 
-        var results: [(scheduled: ScheduledTransaction, date: Date)] = []
+        var results: [(commitment: Commitment, date: Date)] = []
         while year < endYear || (year == endYear && month <= endMonth) {
-            results.append(contentsOf: expectedDues(month: month, year: year, calendar: calendar))
+            results.append(contentsOf: expectedCommitmentOccurrences(month: month, year: year, calendar: calendar))
             month += 1
             if month > 12 {
                 month = 1
@@ -1193,22 +1216,68 @@ package final class DominoViewModel: ObservableObject {
         }.sorted { $0.date < $1.date }
     }
 
-    /// Whether a recorded financial transaction already covers this scheduled occurrence (same calendar day as `dueDate`).
-    package func isScheduledOccurrencePaid(scheduledTransactionID: UUID, dueDate: Date, calendar: Calendar = .current) -> Bool {
+    /// Expected (forecast, occurrence date) pairs for a given month.
+    package func expectedForecastOccurrences(month: Int, year: Int, calendar: Calendar = .current) -> [(forecast: Forecast, date: Date)] {
+        var results: [(forecast: Forecast, date: Date)] = []
+        for forecast in forecasts.values where forecast.isActive {
+            if var rec = forecast.recurrence {
+                rec.startDate = forecast.createdAt
+                let dates = rec.occurrences(in: month, year: year, calendar: calendar)
+                for date in dates {
+                    results.append((forecast: forecast, date: date))
+                }
+            } else {
+                let comps = calendar.dateComponents([.year, .month], from: forecast.createdAt)
+                if comps.year == year && comps.month == month {
+                    results.append((forecast: forecast, date: forecast.createdAt))
+                }
+            }
+        }
+        return results.sorted { $0.date < $1.date }
+    }
+
+    package func expectedForecastOccurrences(from rangeStart: Date, to rangeEnd: Date, calendar: Calendar = .current) -> [(forecast: Forecast, date: Date)] {
+        let fromDay = calendar.startOfDay(for: rangeStart)
+        let toDay = calendar.startOfDay(for: rangeEnd)
+        guard fromDay <= toDay else { return [] }
+
+        var year = calendar.component(.year, from: fromDay)
+        var month = calendar.component(.month, from: fromDay)
+        let endYear = calendar.component(.year, from: toDay)
+        let endMonth = calendar.component(.month, from: toDay)
+
+        var results: [(forecast: Forecast, date: Date)] = []
+        while year < endYear || (year == endYear && month <= endMonth) {
+            results.append(contentsOf: expectedForecastOccurrences(month: month, year: year, calendar: calendar))
+            month += 1
+            if month > 12 {
+                month = 1
+                year += 1
+            }
+        }
+
+        return results.filter { pair in
+            let d = calendar.startOfDay(for: pair.date)
+            return d >= fromDay && d <= toDay
+        }.sorted { $0.date < $1.date }
+    }
+
+    /// Whether a recorded financial transaction already covers this commitment occurrence (same calendar day as `dueDate`).
+    package func isCommitmentOccurrencePaid(commitmentID: UUID, dueDate: Date, calendar: Calendar = .current) -> Bool {
         financialTransactions.values.contains { txn in
-            txn.scheduledTransactionID == scheduledTransactionID &&
+            txn.commitmentID == commitmentID &&
                 calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
         }
     }
 
-    /// Recorded transaction for this scheduled occurrence, if any (matched by `dueDate` calendar day).
-    package func financialTransactionCoveringScheduledOccurrence(
-        scheduledTransactionID: UUID,
+    /// Recorded transaction for this commitment occurrence, if any (matched by `dueDate` calendar day).
+    package func financialTransactionCoveringCommitmentOccurrence(
+        commitmentID: UUID,
         dueDate: Date,
         calendar: Calendar = .current
     ) -> FinancialTransaction? {
         financialTransactions.values.first { txn in
-            txn.scheduledTransactionID == scheduledTransactionID &&
+            txn.commitmentID == commitmentID &&
                 calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
         }
     }
@@ -1221,8 +1290,10 @@ package final class DominoViewModel: ObservableObject {
     }
 
     package func allFinancialTags() -> [String] {
-        let tags = scheduledTransactions.values.flatMap(\.tags).filter { !$0.isEmpty }
-        return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        let tags =
+            commitments.values.flatMap(\.tags) + forecasts.values.flatMap(\.tags)
+        let nonEmpty = tags.filter { !$0.isEmpty }
+        return Array(Set(nonEmpty)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     package func allTransactionTags() -> [String] {
@@ -1230,16 +1301,23 @@ package final class DominoViewModel: ObservableObject {
         return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    private func backfillTransactionTagsFromScheduledTransactionsIfNeeded() {
+    private func backfillTransactionTagsFromPlanningItemsIfNeeded() {
         var changed = false
         for id in financialTransactions.keys {
             guard var txn = financialTransactions[id], txn.tags.isEmpty else { continue }
-            guard let stID = txn.scheduledTransactionID,
-                let scheduled = scheduledTransactions[stID],
-                !scheduled.tags.isEmpty else { continue }
-            txn.tags = scheduled.tags
-            financialTransactions[id] = txn
-            changed = true
+            if let commitmentID = txn.commitmentID,
+                let commitment = commitments[commitmentID],
+                !commitment.tags.isEmpty {
+                txn.tags = commitment.tags
+                financialTransactions[id] = txn
+                changed = true
+            } else if let forecastID = txn.forecastID,
+                let forecast = forecasts[forecastID],
+                !forecast.tags.isEmpty {
+                txn.tags = forecast.tags
+                financialTransactions[id] = txn
+                changed = true
+            }
         }
         if changed {
             isDirty = true

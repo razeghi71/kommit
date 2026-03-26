@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Finances Sub-tabs
 
 private enum FinancesTab: String, CaseIterable, Identifiable {
-    case scheduledTransactions
+    case financialPlanning
     case transactions
     case calendar
 
@@ -11,7 +11,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .scheduledTransactions: "Scheduled"
+        case .financialPlanning: "Financial Planning"
         case .transactions: "Transactions"
         case .calendar: "Calendar"
         }
@@ -19,7 +19,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .scheduledTransactions: "list.bullet.rectangle"
+        case .financialPlanning: "calendar.badge.clock"
         case .transactions: "arrow.left.arrow.right"
         case .calendar: "calendar"
         }
@@ -30,7 +30,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 
 package struct FinancesView: View {
     @ObservedObject var viewModel: DominoViewModel
-    @State private var selectedTab: FinancesTab = .scheduledTransactions
+    @State private var selectedTab: FinancesTab = .financialPlanning
 
     package var body: some View {
         HStack(spacing: 0) {
@@ -79,8 +79,8 @@ package struct FinancesView: View {
     @ViewBuilder
     private var content: some View {
         switch selectedTab {
-        case .scheduledTransactions:
-            ScheduledTransactionsListView(viewModel: viewModel)
+        case .financialPlanning:
+            FinancialPlanningListView(viewModel: viewModel)
         case .transactions:
             TransactionsListView(viewModel: viewModel)
         case .calendar:
@@ -89,12 +89,14 @@ package struct FinancesView: View {
     }
 }
 
-// MARK: - Scheduled transactions list
+// MARK: - Financial planning list (commitments + forecasts)
 
-private struct ScheduledTransactionsListView: View {
+private struct FinancialPlanningListView: View {
     @ObservedObject var viewModel: DominoViewModel
-    @State private var showingAddScheduledTransaction = false
-    @State private var editingScheduledTransaction: ScheduledTransaction?
+    @State private var showingAddCommitment = false
+    @State private var showingAddForecast = false
+    @State private var editingCommitment: Commitment?
+    @State private var editingForecast: Forecast?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -102,44 +104,78 @@ private struct ScheduledTransactionsListView: View {
             Divider()
             entriesTable
         }
-        .sheet(isPresented: $showingAddScheduledTransaction) {
-            ScheduledTransactionEditorView(viewModel: viewModel, scheduledTransaction: nil)
+        .sheet(isPresented: $showingAddCommitment) {
+            CommitmentEditorView(viewModel: viewModel, commitment: nil)
         }
-        .sheet(item: $editingScheduledTransaction) { scheduled in
-            ScheduledTransactionEditorView(viewModel: viewModel, scheduledTransaction: scheduled)
+        .sheet(isPresented: $showingAddForecast) {
+            ForecastEditorView(viewModel: viewModel, forecast: nil)
+        }
+        .sheet(item: $editingCommitment) { commitment in
+            CommitmentEditorView(viewModel: viewModel, commitment: commitment)
+        }
+        .sheet(item: $editingForecast) { forecast in
+            ForecastEditorView(viewModel: viewModel, forecast: forecast)
         }
     }
 
     private var header: some View {
         HStack {
-            Text("Scheduled transactions")
+            Text("Financial planning")
                 .font(.system(size: 16, weight: .semibold))
 
             Spacer()
 
-            Button {
-                showingAddScheduledTransaction = true
+            Menu {
+                Button("New commitment…") {
+                    showingAddCommitment = true
+                }
+                Button("New forecast…") {
+                    showingAddForecast = true
+                }
             } label: {
                 Image(systemName: "plus")
             }
-            .buttonStyle(.bordered)
+            .menuStyle(.borderedButton)
         }
         .padding(12)
     }
 
-    private var sortedEntries: [ScheduledTransaction] {
-        viewModel.scheduledTransactions.values.sorted { $0.name < $1.name }
+    private var sortedCommitments: [Commitment] {
+        viewModel.commitments.values.sorted { $0.name < $1.name }
+    }
+
+    private var sortedForecasts: [Forecast] {
+        viewModel.forecasts.values.sorted { $0.name < $1.name }
     }
 
     private var entriesTable: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(sortedEntries) { entry in
-                    ScheduledTransactionRow(
-                        scheduled: entry,
-                        onEdit: { editingScheduledTransaction = entry },
+            LazyVStack(alignment: .leading, spacing: 0) {
+                sectionHeader("Commitments")
+                if sortedCommitments.isEmpty {
+                    emptyHint("No commitments yet. Add rent, salary, subscriptions—items you mark paid when they happen.")
+                }
+                ForEach(sortedCommitments) { entry in
+                    CommitmentRow(
+                        commitment: entry,
+                        onEdit: { editingCommitment = entry },
                         onDelete: {
-                            viewModel.deleteScheduledTransaction(entry.id)
+                            viewModel.deleteCommitment(entry.id)
+                        }
+                    )
+                    Divider()
+                }
+
+                sectionHeader("Forecasts")
+                if sortedForecasts.isEmpty {
+                    emptyHint("No forecasts yet. Add typical spending like groceries or lunch—shown in the calendar as estimates, not due items.")
+                }
+                ForEach(sortedForecasts) { entry in
+                    ForecastRow(
+                        forecast: entry,
+                        onEdit: { editingForecast = entry },
+                        onDelete: {
+                            viewModel.deleteForecast(entry.id)
                         }
                     )
                     Divider()
@@ -147,10 +183,30 @@ private struct ScheduledTransactionsListView: View {
             }
         }
     }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+    }
+
+    private func emptyHint(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+    }
 }
 
-private struct ScheduledTransactionRow: View {
-    let scheduled: ScheduledTransaction
+private struct CommitmentRow: View {
+    let commitment: Commitment
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -158,9 +214,9 @@ private struct ScheduledTransactionRow: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(scheduled.name.isEmpty ? "Untitled" : scheduled.name)
+                    Text(commitment.name.isEmpty ? "Untitled" : commitment.name)
                         .font(.system(size: 14, weight: .medium))
-                    if !scheduled.isActive {
+                    if !commitment.isActive {
                         Text("Paused")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -170,32 +226,30 @@ private struct ScheduledTransactionRow: View {
                     }
                 }
 
-                Text(scheduled.recurrenceDescription)
+                Text(commitment.recurrenceDescription)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            Text(scheduled.type == .income ? "+\(formatAmount(scheduled.amount))" : "-\(formatAmount(scheduled.amount))")
+            Text(commitment.type == .income ? "+\(formatAmount(commitment.amount))" : "-\(formatAmount(commitment.amount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                .foregroundStyle(scheduled.type == .income ? .green : .primary)
+                .foregroundStyle(commitment.type == .income ? .green : .primary)
 
-            if !scheduled.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(scheduled.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.primary.opacity(0.06)))
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(commitment.tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.primary.opacity(0.06)))
                     }
                 }
-                .frame(maxWidth: 160)
             }
+            .frame(width: 160, alignment: .leading)
 
             Menu {
                 Button("Edit") { onEdit() }
@@ -223,7 +277,85 @@ private struct ScheduledTransactionRow: View {
     }
 }
 
-// MARK: - Scheduled transaction editor
+private struct ForecastRow: View {
+    let forecast: Forecast
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(forecast.name.isEmpty ? "Untitled" : forecast.name)
+                        .font(.system(size: 14, weight: .medium))
+                    Text("Forecast")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    if !forecast.isActive {
+                        Text("Paused")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    }
+                }
+
+                Text(forecast.recurrenceDescription)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(forecast.type == .income ? "+\(formatAmount(forecast.amount))" : "-\(formatAmount(forecast.amount))")
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .foregroundStyle(forecast.type == .income ? .green : .primary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(forecast.tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.primary.opacity(0.06)))
+                    }
+                }
+            }
+            .frame(width: 160, alignment: .leading)
+
+            Menu {
+                Button("Edit") { onEdit() }
+                Button("Delete", role: .destructive) { onDelete() }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 28)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func formatAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
+    }
+}
+
+// MARK: - Commitment editor
 
 // MARK: - Recurrence Preset (Google Calendar-style)
 
@@ -237,9 +369,9 @@ private enum RecurrencePreset: Hashable {
     case custom
 }
 
-private struct ScheduledTransactionDraftBaseline: Equatable {
+private struct CommitmentDraftBaseline: Equatable {
     var name: String
-    var type: ScheduledTransactionType
+    var type: FinancialFlowType
     var amount: Double
     var tags: [String]
     var isActive: Bool
@@ -247,14 +379,14 @@ private struct ScheduledTransactionDraftBaseline: Equatable {
     var recurrence: Recurrence?
 }
 
-private struct ScheduledTransactionEditorView: View {
+private struct CommitmentEditorView: View {
     @ObservedObject var viewModel: DominoViewModel
-    let scheduledTransaction: ScheduledTransaction?
+    let commitment: Commitment?
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
-    @State private var type: ScheduledTransactionType = .expense
+    @State private var type: FinancialFlowType = .expense
     @State private var amount: String = ""
     @State private var tags: [String] = []
     @State private var tagInput: String = ""
@@ -265,9 +397,9 @@ private struct ScheduledTransactionEditorView: View {
     @State private var customRecurrence: Recurrence?
     @State private var showCustomRecurrence = false
     @State private var previousPreset: RecurrencePreset = .doesNotRepeat
-    @State private var draftBaseline: ScheduledTransactionDraftBaseline?
+    @State private var draftBaseline: CommitmentDraftBaseline?
 
-    var isEditing: Bool { scheduledTransaction != nil }
+    var isEditing: Bool { commitment != nil }
 
     private var hasUnsavedDraft: Bool {
         guard let draftBaseline else { return false }
@@ -283,7 +415,7 @@ private struct ScheduledTransactionEditorView: View {
         }
         .frame(width: 480, height: 440)
         .interactiveDismissDisabled(hasUnsavedDraft)
-        .onAppear { loadScheduledTransaction() }
+        .onAppear { loadCommitment() }
         .onChange(of: selectedPreset) { old, new in
             if new == .custom {
                 previousPreset = old
@@ -314,7 +446,7 @@ private struct ScheduledTransactionEditorView: View {
 
     private var header: some View {
         HStack {
-            Text(isEditing ? "Edit scheduled transaction" : "New scheduled transaction")
+            Text(isEditing ? "Edit commitment" : "New commitment")
                 .font(.system(size: 15, weight: .semibold))
             Spacer()
             Button("Cancel") { cancelEditing() }
@@ -332,8 +464,8 @@ private struct ScheduledTransactionEditorView: View {
         return r
     }
 
-    private func currentDraftSnapshot() -> ScheduledTransactionDraftBaseline {
-        ScheduledTransactionDraftBaseline(
+    private func currentDraftSnapshot() -> CommitmentDraftBaseline {
+        CommitmentDraftBaseline(
             name: name.trimmingCharacters(in: .whitespaces),
             type: type,
             amount: Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0,
@@ -355,7 +487,7 @@ private struct ScheduledTransactionEditorView: View {
         }
         if DominoViewModel.showDiscardConfirmation(
             messageText: "Discard changes?",
-            informativeText: "Your edits to this scheduled transaction will be lost."
+            informativeText: "Your edits to this commitment will be lost."
         ) {
             dismiss()
         }
@@ -372,7 +504,7 @@ private struct ScheduledTransactionEditorView: View {
                 HStack {
                     LabeledContent("Type") {
                         Picker("", selection: $type) {
-                            ForEach(ScheduledTransactionType.allCases, id: \.self) { t in
+                            ForEach(FinancialFlowType.allCases, id: \.self) { t in
                                 Text(t.displayName).tag(t)
                             }
                         }
@@ -545,19 +677,19 @@ private struct ScheduledTransactionEditorView: View {
 
     // MARK: - Load / Save
 
-    private func loadScheduledTransaction() {
-        if let scheduledTransaction {
-            name = scheduledTransaction.name
-            type = scheduledTransaction.type
-            amount = String(format: "%.2f", scheduledTransaction.amount)
-            tags = scheduledTransaction.tags
-            isActive = scheduledTransaction.isActive
-            eventDate = scheduledTransaction.createdAt
+    private func loadCommitment() {
+        if let existing = commitment {
+            name = existing.name
+            type = existing.type
+            amount = String(format: "%.2f", existing.amount)
+            tags = existing.tags
+            isActive = existing.isActive
+            eventDate = existing.createdAt
 
-            let preset = presetForRecurrence(scheduledTransaction.recurrence)
+            let preset = presetForRecurrence(existing.recurrence)
             selectedPreset = preset
             if preset == .custom {
-                customRecurrence = scheduledTransaction.recurrence
+                customRecurrence = existing.recurrence
             }
         }
         captureDraftBaseline()
@@ -568,8 +700,8 @@ private struct ScheduledTransactionEditorView: View {
         var recurrence = buildRecurrence()
         recurrence?.startDate = eventDate
 
-        let saved = ScheduledTransaction(
-            id: scheduledTransaction?.id ?? UUID(),
+        let saved = Commitment(
+            id: commitment?.id ?? UUID(),
             name: name.trimmingCharacters(in: .whitespaces),
             type: type,
             amount: amountValue,
@@ -580,9 +712,367 @@ private struct ScheduledTransactionEditorView: View {
         )
 
         if isEditing {
-            viewModel.updateScheduledTransaction(saved)
+            viewModel.updateCommitment(saved)
         } else {
-            viewModel.addScheduledTransaction(saved)
+            viewModel.addCommitment(saved)
+        }
+        dismiss()
+    }
+
+    private var tagSuggestions: [String] {
+        let existingTags = viewModel.allFinancialTags()
+        let selected = Set(tags.map { normalizedTagKey($0) })
+        let query = tagInput.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let base = existingTags.filter { !selected.contains(normalizedTagKey($0)) }
+        guard !query.isEmpty else { return Array(base.prefix(8)) }
+
+        return base
+            .filter { $0.localizedCaseInsensitiveContains(query) }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private func normalizedTagKey(_ tag: String) -> String {
+        tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
+
+// MARK: - Forecast editor
+
+private struct ForecastEditorView: View {
+    @ObservedObject var viewModel: DominoViewModel
+    let forecast: Forecast?
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String = ""
+    @State private var type: FinancialFlowType = .expense
+    @State private var amount: String = ""
+    @State private var tags: [String] = []
+    @State private var tagInput: String = ""
+    @State private var isActive: Bool = true
+    @State private var eventDate: Date = Date()
+
+    @State private var selectedPreset: RecurrencePreset = .doesNotRepeat
+    @State private var customRecurrence: Recurrence?
+    @State private var showCustomRecurrence = false
+    @State private var previousPreset: RecurrencePreset = .doesNotRepeat
+    @State private var draftBaseline: CommitmentDraftBaseline?
+
+    var isEditing: Bool { forecast != nil }
+
+    private var hasUnsavedDraft: Bool {
+        guard let draftBaseline else { return false }
+        return currentDraftSnapshot() != draftBaseline
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            form
+                .padding(16)
+        }
+        .frame(width: 480, height: 440)
+        .interactiveDismissDisabled(hasUnsavedDraft)
+        .onAppear { loadForecastForEditor() }
+        .onChange(of: selectedPreset) { old, new in
+            if new == .custom {
+                previousPreset = old
+                showCustomRecurrence = true
+            }
+        }
+        .sheet(isPresented: $showCustomRecurrence, onDismiss: {
+            if customRecurrence == nil && selectedPreset == .custom {
+                selectedPreset = previousPreset
+            }
+        }) {
+            CustomRecurrenceSheet(
+                initial: customRecurrence ?? recurrenceForPreset(previousPreset),
+                eventDate: eventDate,
+                onSave: { rec in
+                    customRecurrence = rec
+                    showCustomRecurrence = false
+                },
+                onCancel: {
+                    if customRecurrence == nil {
+                        selectedPreset = previousPreset
+                    }
+                    showCustomRecurrence = false
+                }
+            )
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text(isEditing ? "Edit forecast" : "New forecast")
+                .font(.system(size: 15, weight: .semibold))
+            Spacer()
+            Button("Cancel") { cancelEditing() }
+                .buttonStyle(.borderless)
+            Button("Save") { save() }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .padding(12)
+    }
+
+    private func normalizedRecurrenceForDraft() -> Recurrence? {
+        var r = buildRecurrence()
+        r?.startDate = eventDate
+        return r
+    }
+
+    private func currentDraftSnapshot() -> CommitmentDraftBaseline {
+        CommitmentDraftBaseline(
+            name: name.trimmingCharacters(in: .whitespaces),
+            type: type,
+            amount: Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0,
+            tags: tags,
+            isActive: isActive,
+            eventDate: eventDate,
+            recurrence: normalizedRecurrenceForDraft()
+        )
+    }
+
+    private func captureDraftBaseline() {
+        draftBaseline = currentDraftSnapshot()
+    }
+
+    private func cancelEditing() {
+        guard hasUnsavedDraft else {
+            dismiss()
+            return
+        }
+        if DominoViewModel.showDiscardConfirmation(
+            messageText: "Discard changes?",
+            informativeText: "Your edits to this forecast will be lost."
+        ) {
+            dismiss()
+        }
+    }
+
+    private var form: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Shown on the calendar as a forecast. It is not a commitment you mark paid.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                LabeledContent("Name") {
+                    TextField("e.g. Lunch, Groceries", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    LabeledContent("Type") {
+                        Picker("", selection: $type) {
+                            ForEach(FinancialFlowType.allCases, id: \.self) { t in
+                                Text(t.displayName).tag(t)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    LabeledContent("Amount") {
+                        HStack(spacing: 2) {
+                            Text("$")
+                                .foregroundStyle(.secondary)
+                            TextField("0.00", text: $amount)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tags")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    TagInputField(
+                        tags: $tags,
+                        input: $tagInput,
+                        suggestions: tagSuggestions
+                    )
+                }
+
+                Toggle("Active", isOn: $isActive)
+
+                Divider()
+
+                DatePicker("Starts", selection: $eventDate, displayedComponents: .date)
+
+                recurrencePicker
+
+                if selectedPreset == .custom, let rec = customRecurrence {
+                    HStack(spacing: 4) {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(rec.description)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var recurrencePicker: some View {
+        LabeledContent("Repeats") {
+            Picker("", selection: $selectedPreset) {
+                Text("Does not repeat").tag(RecurrencePreset.doesNotRepeat)
+                Divider()
+                Text("Daily").tag(RecurrencePreset.daily)
+                Text(weeklyLabel).tag(RecurrencePreset.weeklyOnDay)
+                Text(monthlyOnDayLabel).tag(RecurrencePreset.monthlyOnDay)
+                Text(annuallyLabel).tag(RecurrencePreset.annuallyOnDate)
+                Text("Every weekday (Monday to Friday)").tag(RecurrencePreset.everyWeekday)
+                Divider()
+                Text("Custom…").tag(RecurrencePreset.custom)
+            }
+        }
+    }
+
+    private var eventWeekday: Weekday {
+        let wd = Calendar.current.component(.weekday, from: eventDate)
+        return Weekday.from(calendarWeekday: wd) ?? .monday
+    }
+
+    private var weeklyLabel: String {
+        "Weekly on \(eventWeekday.shortName)"
+    }
+
+    private var eventMonthDay: Int {
+        Calendar.current.component(.day, from: eventDate)
+    }
+
+    private var monthlyOnDayLabel: String {
+        "Monthly on the \(daySuffix(eventMonthDay))"
+    }
+
+    private static let daySuffixMap: [Int: String] = [
+        1: "1st", 2: "2nd", 3: "3rd", 21: "21st", 22: "22nd", 23: "23rd", 31: "31st"
+    ]
+
+    private func daySuffix(_ day: Int) -> String {
+        Self.daySuffixMap[day] ?? "\(day)th"
+    }
+
+    private var annuallyLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d"
+        return "Annually on \(formatter.string(from: eventDate))"
+    }
+
+    private func recurrenceForPreset(_ preset: RecurrencePreset) -> Recurrence? {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day], from: eventDate)
+        let monthDay = comps.day ?? 1
+        let month = comps.month ?? 1
+
+        switch preset {
+        case .doesNotRepeat:
+            return nil
+        case .daily:
+            return .everyDay()
+        case .weeklyOnDay:
+            return .everyWeek(on: [eventWeekday])
+        case .monthlyOnDay:
+            return .everyMonth(day: monthDay)
+        case .annuallyOnDate:
+            return .everyYear(month: month, day: monthDay)
+        case .everyWeekday:
+            return .everyWeekday()
+        case .custom:
+            return customRecurrence
+        }
+    }
+
+    private func buildRecurrence() -> Recurrence? {
+        recurrenceForPreset(selectedPreset)
+    }
+
+    private func presetForRecurrence(_ rec: Recurrence?) -> RecurrencePreset {
+        guard let rec else { return .doesNotRepeat }
+
+        let wd = eventWeekday
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day], from: eventDate)
+        let day = comps.day ?? 1
+        let month = comps.month ?? 1
+
+        if rec.frequency == .daily && rec.interval == 1 && rec.end == .never
+            && rec.byWeekday == nil && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .daily
+        }
+
+        if rec.frequency == .weekly && rec.interval == 1 && rec.byWeekday == [wd]
+            && rec.end == .never && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .weeklyOnDay
+        }
+
+        if rec.frequency == .monthly && rec.interval == 1 && rec.byWeekday == nil
+            && rec.byMonthDay == [day] && rec.end == .never && rec.byMonth == nil {
+            return .monthlyOnDay
+        }
+
+        if rec.frequency == .yearly && rec.interval == 1 && rec.byMonth == month
+            && rec.byMonthDay == [day] && rec.end == .never && rec.byWeekday == nil {
+            return .annuallyOnDate
+        }
+
+        if rec.frequency == .weekly && rec.interval == 1
+            && Set(rec.byWeekday ?? []) == Set([Weekday.monday, .tuesday, .wednesday, .thursday, .friday])
+            && rec.end == .never && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .everyWeekday
+        }
+
+        return .custom
+    }
+
+    private func loadForecastForEditor() {
+        if let existing = forecast {
+            name = existing.name
+            type = existing.type
+            amount = String(format: "%.2f", existing.amount)
+            tags = existing.tags
+            isActive = existing.isActive
+            eventDate = existing.createdAt
+
+            let preset = presetForRecurrence(existing.recurrence)
+            selectedPreset = preset
+            if preset == .custom {
+                customRecurrence = existing.recurrence
+            }
+        }
+        captureDraftBaseline()
+    }
+
+    private func save() {
+        let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
+        var recurrence = buildRecurrence()
+        recurrence?.startDate = eventDate
+
+        let saved = Forecast(
+            id: forecast?.id ?? UUID(),
+            name: name.trimmingCharacters(in: .whitespaces),
+            type: type,
+            amount: amountValue,
+            recurrence: recurrence,
+            tags: tags,
+            isActive: isActive,
+            createdAt: eventDate
+        )
+
+        if isEditing {
+            viewModel.updateForecast(saved)
+        } else {
+            viewModel.addForecast(saved)
         }
         dismiss()
     }
@@ -1145,6 +1635,11 @@ private struct TransactionRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    private var showsOccurrenceNote: Bool {
+        let linked = transaction.commitmentID != nil || transaction.forecastID != nil
+        return linked && !Calendar.current.isDate(transaction.dueDate, inSameDayAs: transaction.date)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Text(Self.dateFormatter.string(from: transaction.date))
@@ -1155,9 +1650,8 @@ private struct TransactionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
                     .font(.system(size: 14, weight: .medium))
-                if transaction.scheduledTransactionID != nil,
-                    !Calendar.current.isDate(transaction.dueDate, inSameDayAs: transaction.date) {
-                    Text("Due: \(Self.dateFormatter.string(from: transaction.dueDate))")
+                if showsOccurrenceNote {
+                    Text("Occurrence: \(Self.dateFormatter.string(from: transaction.dueDate))")
                         .font(.system(size: 11))
                         .foregroundStyle(.orange)
                 }
@@ -1219,13 +1713,30 @@ private struct TransactionRow: View {
 
 private struct FinancialTransactionDraftBaseline: Equatable {
     var name: String
-    var type: ScheduledTransactionType
+    var type: FinancialFlowType
     var amount: Double
     var date: Date
     var dueDate: Date
     var tags: [String]
     var note: String?
-    var scheduledTransactionID: UUID?
+    var commitmentID: UUID?
+    var forecastID: UUID?
+}
+
+private enum TransactionPlanningLinkKind: String, CaseIterable, Identifiable {
+    case none
+    case commitment
+    case forecast
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none: "None (one-off)"
+        case .commitment: "Commitment"
+        case .forecast: "Forecast"
+        }
+    }
 }
 
 private struct TransactionEditorView: View {
@@ -1233,18 +1744,20 @@ private struct TransactionEditorView: View {
     let transaction: FinancialTransaction?
     let defaultMonth: Int
     let defaultYear: Int
-    var prefilledScheduledTransactionID: UUID?
+    var prefilledCommitmentID: UUID?
     var prefilledDueDate: Date?
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
-    @State private var type: ScheduledTransactionType = .expense
+    @State private var type: FinancialFlowType = .expense
     @State private var amount: String = ""
     @State private var date: Date = Date()
     @State private var selectedDueDate: Date = Date()
     @State private var note: String = ""
-    @State private var selectedScheduledTransactionID: UUID?
+    @State private var planningLinkKind: TransactionPlanningLinkKind = .none
+    @State private var selectedCommitmentID: UUID?
+    @State private var selectedForecastID: UUID?
     @State private var tags: [String] = []
     @State private var tagInput: String = ""
     @State private var draftBaseline: FinancialTransactionDraftBaseline?
@@ -1264,11 +1777,11 @@ private struct TransactionEditorView: View {
                 form.padding(16)
             }
         }
-        .frame(width: 460, height: selectedScheduledTransactionID != nil ? 560 : 500)
+        .frame(width: 460, height: planningLinkKind == .none ? 500 : 580)
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadTransaction() }
         .onChange(of: date) { _, newDate in
-            guard selectedScheduledTransactionID == nil else { return }
+            guard planningLinkKind == .none else { return }
             selectedDueDate = newDate
         }
     }
@@ -1282,9 +1795,17 @@ private struct TransactionEditorView: View {
                 .buttonStyle(.borderless)
             Button("Save") { save() }
                 .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || planningLinkIncomplete)
         }
         .padding(12)
+    }
+
+    private var planningLinkIncomplete: Bool {
+        switch planningLinkKind {
+        case .none: false
+        case .commitment: selectedCommitmentID == nil
+        case .forecast: selectedForecastID == nil
+        }
     }
 
     private func currentDraftSnapshot() -> FinancialTransactionDraftBaseline {
@@ -1296,7 +1817,8 @@ private struct TransactionEditorView: View {
             dueDate: selectedDueDate,
             tags: tags,
             note: note.trimmingCharacters(in: .whitespaces).nilIfEmpty,
-            scheduledTransactionID: selectedScheduledTransactionID
+            commitmentID: planningLinkKind == .commitment ? selectedCommitmentID : nil,
+            forecastID: planningLinkKind == .forecast ? selectedForecastID : nil
         )
     }
 
@@ -1319,26 +1841,56 @@ private struct TransactionEditorView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
-            LabeledContent("From scheduled transaction") {
-                Picker("", selection: $selectedScheduledTransactionID) {
-                    Text("None (one-off)").tag(nil as UUID?)
-                    ForEach(Array(viewModel.scheduledTransactions.values).sorted { $0.name < $1.name }) { scheduled in
-                        Text(scheduled.name).tag(scheduled.id as UUID?)
+            LabeledContent("Planning link") {
+                Picker("", selection: $planningLinkKind) {
+                    ForEach(TransactionPlanningLinkKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
                     }
                 }
-                .onChange(of: selectedScheduledTransactionID) { _, id in
-                    guard let id, let scheduled = viewModel.scheduledTransactions[id] else {
+                .onChange(of: planningLinkKind) { _, newKind in
+                    switch newKind {
+                    case .none:
+                        selectedCommitmentID = nil
+                        selectedForecastID = nil
                         selectedDueDate = date
-                        return
+                    case .commitment:
+                        selectedForecastID = nil
+                        if selectedCommitmentID == nil {
+                            selectedDueDate = date
+                        }
+                    case .forecast:
+                        selectedCommitmentID = nil
+                        if selectedForecastID == nil {
+                            selectedDueDate = date
+                        }
                     }
-                    name = scheduled.name
-                    type = scheduled.type
-                    amount = String(format: "%.2f", scheduled.amount)
-                    tags = scheduled.tags
-                    if !scheduled.isRecurring {
-                        selectedDueDate = scheduled.createdAt
-                    } else {
-                        selectedDueDate = nearestInstance(for: scheduled)
+                }
+            }
+
+            if planningLinkKind == .commitment {
+                LabeledContent("Commitment") {
+                    Picker("", selection: $selectedCommitmentID) {
+                        Text("Choose…").tag(nil as UUID?)
+                        ForEach(Array(viewModel.commitments.values).sorted { $0.name < $1.name }) { item in
+                            Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
+                        }
+                    }
+                    .onChange(of: selectedCommitmentID) { _, id in
+                        applyCommitmentSelection(id)
+                    }
+                }
+            }
+
+            if planningLinkKind == .forecast {
+                LabeledContent("Forecast") {
+                    Picker("", selection: $selectedForecastID) {
+                        Text("Choose…").tag(nil as UUID?)
+                        ForEach(Array(viewModel.forecasts.values).sorted { $0.name < $1.name }) { item in
+                            Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
+                        }
+                    }
+                    .onChange(of: selectedForecastID) { _, id in
+                        applyForecastSelection(id)
                     }
                 }
             }
@@ -1351,7 +1903,7 @@ private struct TransactionEditorView: View {
             HStack {
                 LabeledContent("Type") {
                     Picker("", selection: $type) {
-                        ForEach(ScheduledTransactionType.allCases, id: \.self) { t in
+                        ForEach(FinancialFlowType.allCases, id: \.self) { t in
                             Text(t.displayName).tag(t)
                         }
                     }
@@ -1367,7 +1919,7 @@ private struct TransactionEditorView: View {
                 }
             }
 
-            if selectedScheduledTransactionID != nil {
+            if planningLinkKind != .none {
                 instancePicker
             }
 
@@ -1395,9 +1947,11 @@ private struct TransactionEditorView: View {
 
     private var instancePicker: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let id = selectedScheduledTransactionID, let scheduled = viewModel.scheduledTransactions[id] {
-                if scheduled.isRecurring {
-                    let instances = computeInstances(for: scheduled)
+            if planningLinkKind == .commitment,
+                let id = selectedCommitmentID,
+                let commitmentItem = viewModel.commitments[id] {
+                if commitmentItem.isRecurring {
+                    let instances = computeInstances(for: commitmentItem)
                     LabeledContent("For occurrence") {
                         Picker("", selection: $selectedDueDate) {
                             ForEach(instances, id: \.self) { d in
@@ -1410,7 +1964,28 @@ private struct TransactionEditorView: View {
                         Text("For occurrence")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(Self.instanceDateFormatter.string(from: scheduled.createdAt))
+                        Text(Self.instanceDateFormatter.string(from: commitmentItem.createdAt))
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                }
+            } else if planningLinkKind == .forecast,
+                let id = selectedForecastID,
+                let forecastItem = viewModel.forecasts[id] {
+                if forecastItem.isRecurring {
+                    let instances = computeInstances(for: forecastItem)
+                    LabeledContent("For occurrence") {
+                        Picker("", selection: $selectedDueDate) {
+                            ForEach(instances, id: \.self) { d in
+                                Text(Self.instanceDateFormatter.string(from: d)).tag(d)
+                            }
+                        }
+                    }
+                } else {
+                    HStack {
+                        Text("For occurrence")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(Self.instanceDateFormatter.string(from: forecastItem.createdAt))
                             .font(.system(size: 13, weight: .medium))
                     }
                 }
@@ -1418,21 +1993,74 @@ private struct TransactionEditorView: View {
         }
     }
 
-    private func computeInstances(for scheduled: ScheduledTransaction) -> [Date] {
-        FinancialScheduling.recurrenceInstances(
-            for: scheduled,
+    private func computeInstances(for commitmentItem: Commitment) -> [Date] {
+        FinancialRecurrence.recurrenceInstances(
+            for: commitmentItem,
             centerMonth: defaultMonth,
             centerYear: defaultYear,
             calendar: Calendar.current
         )
     }
 
-    private func nearestInstance(for scheduled: ScheduledTransaction) -> Date {
-        let instances = computeInstances(for: scheduled)
+    private func computeInstances(for forecastItem: Forecast) -> [Date] {
+        FinancialRecurrence.recurrenceInstances(
+            for: forecastItem,
+            centerMonth: defaultMonth,
+            centerYear: defaultYear,
+            calendar: Calendar.current
+        )
+    }
+
+    private func nearestInstance(for commitmentItem: Commitment) -> Date {
+        let instances = computeInstances(for: commitmentItem)
         let cal = Calendar.current
         guard !instances.isEmpty else { return Date() }
         let anchor = cal.date(from: DateComponents(year: defaultYear, month: defaultMonth, day: 15)) ?? Date()
         return instances.min(by: { abs($0.timeIntervalSince(anchor)) < abs($1.timeIntervalSince(anchor)) }) ?? instances[0]
+    }
+
+    private func nearestInstance(for forecastItem: Forecast) -> Date {
+        let instances = computeInstances(for: forecastItem)
+        let cal = Calendar.current
+        guard !instances.isEmpty else { return Date() }
+        let anchor = cal.date(from: DateComponents(year: defaultYear, month: defaultMonth, day: 15)) ?? Date()
+        return instances.min(by: { abs($0.timeIntervalSince(anchor)) < abs($1.timeIntervalSince(anchor)) }) ?? instances[0]
+    }
+
+    private func applyCommitmentSelection(_ id: UUID?) {
+        guard let id, let item = viewModel.commitments[id] else {
+            selectedDueDate = date
+            return
+        }
+        if !isEditing {
+            name = item.name
+            type = item.type
+            amount = String(format: "%.2f", item.amount)
+            tags = item.tags
+        }
+        if !item.isRecurring {
+            selectedDueDate = item.createdAt
+        } else {
+            selectedDueDate = nearestInstance(for: item)
+        }
+    }
+
+    private func applyForecastSelection(_ id: UUID?) {
+        guard let id, let item = viewModel.forecasts[id] else {
+            selectedDueDate = date
+            return
+        }
+        if !isEditing {
+            name = item.name
+            type = item.type
+            amount = String(format: "%.2f", item.amount)
+            tags = item.tags
+        }
+        if !item.isRecurring {
+            selectedDueDate = item.createdAt
+        } else {
+            selectedDueDate = nearestInstance(for: item)
+        }
     }
 
     private static let instanceDateFormatter: DateFormatter = {
@@ -1452,14 +2080,34 @@ private struct TransactionEditorView: View {
             selectedDueDate = txn.dueDate
             tags = txn.tags
             note = txn.note ?? ""
-            selectedScheduledTransactionID = txn.scheduledTransactionID
-            if txn.scheduledTransactionID == nil {
+            if txn.commitmentID != nil {
+                planningLinkKind = .commitment
+                selectedCommitmentID = txn.commitmentID
+                selectedForecastID = nil
+            } else if txn.forecastID != nil {
+                planningLinkKind = .forecast
+                selectedForecastID = txn.forecastID
+                selectedCommitmentID = nil
+            } else {
+                planningLinkKind = .none
+                selectedCommitmentID = nil
+                selectedForecastID = nil
                 selectedDueDate = txn.date
-            } else if let stID = txn.scheduledTransactionID,
-                let scheduled = viewModel.scheduledTransactions[stID],
-                scheduled.isRecurring {
-                let instances = computeInstances(for: scheduled)
-                if let resolved = FinancialScheduling.matchingOccurrence(
+            }
+            if planningLinkKind == .commitment, let commitmentID = txn.commitmentID,
+                let commitmentItem = viewModel.commitments[commitmentID], commitmentItem.isRecurring {
+                let instances = computeInstances(for: commitmentItem)
+                if let resolved = FinancialRecurrence.matchingOccurrence(
+                    in: instances,
+                    forStoredDueDate: txn.dueDate,
+                    calendar: Calendar.current
+                ) {
+                    selectedDueDate = resolved
+                }
+            } else if planningLinkKind == .forecast, let forecastID = txn.forecastID,
+                let forecastItem = viewModel.forecasts[forecastID], forecastItem.isRecurring {
+                let instances = computeInstances(for: forecastItem)
+                if let resolved = FinancialRecurrence.matchingOccurrence(
                     in: instances,
                     forStoredDueDate: txn.dueDate,
                     calendar: Calendar.current
@@ -1467,19 +2115,16 @@ private struct TransactionEditorView: View {
                     selectedDueDate = resolved
                 }
             }
-        } else if let stID = prefilledScheduledTransactionID {
-            selectedScheduledTransactionID = stID
-            if let scheduled = viewModel.scheduledTransactions[stID] {
-                name = scheduled.name
-                type = scheduled.type
-                amount = String(format: "%.2f", scheduled.amount)
-                tags = scheduled.tags
-            }
+        } else if let prefilledCommitmentUUID = prefilledCommitmentID {
+            planningLinkKind = .commitment
+            selectedCommitmentID = prefilledCommitmentUUID
+            selectedForecastID = nil
+            applyCommitmentSelection(prefilledCommitmentUUID)
             if let prefilled = prefilledDueDate {
                 selectedDueDate = prefilled
-                if let scheduled = viewModel.scheduledTransactions[stID], scheduled.isRecurring {
-                    let instances = computeInstances(for: scheduled)
-                    if let resolved = FinancialScheduling.matchingOccurrence(
+                if let commitmentItem = viewModel.commitments[prefilledCommitmentUUID], commitmentItem.isRecurring {
+                    let instances = computeInstances(for: commitmentItem)
+                    if let resolved = FinancialRecurrence.matchingOccurrence(
                         in: instances,
                         forStoredDueDate: prefilled,
                         calendar: Calendar.current
@@ -1495,10 +2140,13 @@ private struct TransactionEditorView: View {
     private func save() {
         let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
 
-        let effectiveDueDate = selectedScheduledTransactionID == nil ? date : selectedDueDate
+        let savedCommitmentID = planningLinkKind == .commitment ? selectedCommitmentID : nil
+        let savedForecastID = planningLinkKind == .forecast ? selectedForecastID : nil
+        let effectiveDueDate = planningLinkKind == .none ? date : selectedDueDate
         let saved = FinancialTransaction(
             id: transaction?.id ?? UUID(),
-            scheduledTransactionID: selectedScheduledTransactionID,
+            commitmentID: savedCommitmentID,
+            forecastID: savedForecastID,
             name: name.trimmingCharacters(in: .whitespaces),
             amount: amountValue,
             type: type,

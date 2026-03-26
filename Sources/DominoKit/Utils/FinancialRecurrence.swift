@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Recording / occurrence helpers
+// MARK: - Recurrence / occurrence helpers
 
-package enum FinancialScheduling {
+package enum FinancialRecurrence {
     /// First calendar day that is a weekday (Mon–Fri), on or after `date` (using `calendar.startOfDay`).
     package static func firstWorkingDateOnOrAfter(_ date: Date, calendar: Calendar = .current) -> Date {
         var d = calendar.startOfDay(for: date)
@@ -20,14 +20,42 @@ package enum FinancialScheduling {
 
     /// Builds a sorted list of recurrence instances around a **view** month (not “today”), for pickers.
     package static func recurrenceInstances(
-        for scheduled: ScheduledTransaction,
+        for commitment: Commitment,
         centerMonth: Int,
         centerYear: Int,
         monthOffsetRange: ClosedRange<Int> = -4...4,
         calendar: Calendar = .current
     ) -> [Date] {
-        guard var rec = scheduled.recurrence else { return [scheduled.createdAt] }
-        rec.startDate = scheduled.createdAt
+        guard var rec = commitment.recurrence else { return [commitment.createdAt] }
+        rec.startDate = commitment.createdAt
+
+        var results: [Date] = []
+        for offset in monthOffsetRange {
+            var m = centerMonth + offset
+            var y = centerYear
+            while m < 1 {
+                m += 12
+                y -= 1
+            }
+            while m > 12 {
+                m -= 12
+                y += 1
+            }
+            results.append(contentsOf: rec.occurrences(in: m, year: y, calendar: calendar))
+        }
+        return results.sorted()
+    }
+
+    /// Same as `recurrenceInstances(for: Commitment,…)` but for forecasts.
+    package static func recurrenceInstances(
+        for forecast: Forecast,
+        centerMonth: Int,
+        centerYear: Int,
+        monthOffsetRange: ClosedRange<Int> = -4...4,
+        calendar: Calendar = .current
+    ) -> [Date] {
+        guard var rec = forecast.recurrence else { return [forecast.createdAt] }
+        rec.startDate = forecast.createdAt
 
         var results: [Date] = []
         for offset in monthOffsetRange {
