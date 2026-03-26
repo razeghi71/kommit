@@ -179,6 +179,10 @@ package struct FinanceCalendarView: View {
         let isIncome = line.scheduled.type == .income
         let due = line.occurrenceDueDate
         let scheduled = line.scheduled
+        let todayStart = calendar.startOfDay(for: Date())
+        let dueDayStart = calendar.startOfDay(for: due)
+        /// Only overdue **expenses** rolled onto today (not income, not on-time or future dues).
+        let showRecordMenu = scheduled.type == .expense && dueDayStart < todayStart
 
         return ZStack(alignment: .topTrailing) {
             HStack(alignment: .top, spacing: 0) {
@@ -192,7 +196,7 @@ package struct FinanceCalendarView: View {
                         .lineLimit(4)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.trailing, 22)
+                        .padding(.trailing, showRecordMenu ? 22 : 0)
 
                     Text(isIncome ? "+\(formatPlainAmount(scheduled.amount))" : "−\(formatPlainAmount(scheduled.amount))")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -210,31 +214,33 @@ package struct FinanceCalendarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Menu {
-                Button("Record on first working day on or after the due date") {
-                    let recordedOn = FinancialScheduling.firstWorkingDateOnOrAfter(due, calendar: calendar)
-                    recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: recordedOn)
+            if showRecordMenu {
+                Menu {
+                    Button("Record on first working day on or after the due date") {
+                        let recordedOn = FinancialScheduling.firstWorkingDateOnOrAfter(due, calendar: calendar)
+                        recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: recordedOn)
+                    }
+                    Button("Record on due date") {
+                        recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: due)
+                    }
+                    Button("Record on Today") {
+                        recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: Date())
+                    }
+                    Button("Record on custom date…") {
+                        customRecordPayload = FinanceCalendarCustomRecordPayload(scheduled: scheduled, dueDate: due)
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .symbolRenderingMode(.hierarchical)
                 }
-                Button("Record on due date") {
-                    recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: due)
-                }
-                Button("Record on Today") {
-                    recordScheduledOccurrence(scheduled: scheduled, dueDate: due, recordedOn: Date())
-                }
-                Button("Record on custom date…") {
-                    customRecordPayload = FinanceCalendarCustomRecordPayload(scheduled: scheduled, dueDate: due)
-                }
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .symbolRenderingMode(.hierarchical)
+                .menuStyle(.borderlessButton)
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+                .padding(.trailing, 4)
+                .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .padding(.top, 4)
-            .padding(.trailing, 4)
-            .contentShape(Rectangle())
         }
         .background {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
