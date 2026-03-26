@@ -110,7 +110,6 @@ package final class DominoViewModel: ObservableObject {
     @Published var searchPresentationRequest: SearchPresentationRequest?
     @Published var scheduledTransactions: [UUID: ScheduledTransaction] = [:]
     @Published var financialTransactions: [UUID: FinancialTransaction] = [:]
-    @Published var financialBudgets: [UUID: FinancialBudget] = [:]
     /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
     @Published private(set) var canvasRecenterToken: UInt64 = 0
 
@@ -686,7 +685,6 @@ package final class DominoViewModel: ObservableObject {
         let fileStatusSettings: DominoStatusSettings?
         let scheduledTransactions: [ScheduledTransaction]?
         let financialTransactions: [FinancialTransaction]?
-        let financialBudgets: [FinancialBudget]?
     }
 
     private struct MigratedNodes {
@@ -704,8 +702,7 @@ package final class DominoViewModel: ObservableObject {
                 nodes: migrated.nodes,
                 fileStatusSettings: migrated.fileStatusSettings ?? explicitFileSettings,
                 scheduledTransactions: document.scheduledTransactions,
-                financialTransactions: document.financialTransactions,
-                financialBudgets: document.financialBudgets
+                financialTransactions: document.financialTransactions
             )
         }
 
@@ -715,8 +712,7 @@ package final class DominoViewModel: ObservableObject {
             nodes: migrated.nodes,
             fileStatusSettings: migrated.fileStatusSettings,
             scheduledTransactions: nil,
-            financialTransactions: nil,
-            financialBudgets: nil
+            financialTransactions: nil
         )
     }
 
@@ -1033,7 +1029,6 @@ package final class DominoViewModel: ObservableObject {
         nodes.removeAll()
         scheduledTransactions.removeAll()
         financialTransactions.removeAll()
-        financialBudgets.removeAll()
         fileStatusSettings = nil
         editingNodeID = nil
         selectedNodeID = nil
@@ -1076,13 +1071,11 @@ package final class DominoViewModel: ObservableObject {
         encoder.outputFormatting = .prettyPrinted
         let scheduled = scheduledTransactions.values.isEmpty ? nil : Array(scheduledTransactions.values)
         let transactions = financialTransactions.values.isEmpty ? nil : Array(financialTransactions.values)
-        let budgets = financialBudgets.values.isEmpty ? nil : Array(financialBudgets.values)
         let document = DominoDocument(
             nodes: sortedNodes,
             settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings,
             scheduledTransactions: scheduled,
-            financialTransactions: transactions,
-            financialBudgets: budgets
+            financialTransactions: transactions
         )
         guard let data = try? encoder.encode(document) else { return }
         try? data.write(to: url)
@@ -1096,7 +1089,6 @@ package final class DominoViewModel: ObservableObject {
         nodes = Dictionary(uniqueKeysWithValues: loaded.nodes.map { ($0.id, $0) })
         scheduledTransactions = Dictionary(uniqueKeysWithValues: (loaded.scheduledTransactions ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })
-        financialBudgets = Dictionary(uniqueKeysWithValues: (loaded.financialBudgets ?? []).map { ($0.id, $0) })
         backfillTransactionTagsFromScheduledTransactionsIfNeeded()
         fileStatusSettings = loaded.fileStatusSettings
         editingNodeID = nil
@@ -1137,21 +1129,6 @@ package final class DominoViewModel: ObservableObject {
 
     package func deleteFinancialTransaction(_ id: UUID) {
         financialTransactions.removeValue(forKey: id)
-        isDirty = true
-    }
-
-    package func addFinancialBudget(_ budget: FinancialBudget) {
-        financialBudgets[budget.id] = budget
-        isDirty = true
-    }
-
-    package func updateFinancialBudget(_ budget: FinancialBudget) {
-        financialBudgets[budget.id] = budget
-        isDirty = true
-    }
-
-    package func deleteFinancialBudget(_ id: UUID) {
-        financialBudgets.removeValue(forKey: id)
         isDirty = true
     }
 
@@ -1239,71 +1216,6 @@ package final class DominoViewModel: ObservableObject {
     package func allTransactionTags() -> [String] {
         let tags = financialTransactions.values.flatMap(\.tags).filter { !$0.isEmpty }
         return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    package func allBudgetTags() -> [String] {
-        let tags = financialBudgets.values.flatMap(\.tagKeys).filter { !$0.isEmpty }
-        return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    package func budgetBreakdownForMonth(month: Int, year: Int, calendar: Calendar = .current) -> [(budget: FinancialBudget, spent: Double, remaining: Double)] {
-        let txns = transactionsForMonth(month: month, year: year, calendar: calendar).filter { $0.type == .expense }
-        let rows = financialBudgets.values
-            .filter { $0.isActive && $0.period == .monthly }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { budget -> (budget: FinancialBudget, spent: Double, remaining: Double) in
-                let spent = txns.reduce(0.0) { partial, txn in
-                    return partial + (transaction(txn, matches: budget) ? txn.amount : 0)
-                }
-                return (budget: budget, spent: spent, remaining: budget.amount - spent)
-            }
-        return rows
-    }
-
-    package func unbudgetedExpenseForMonth(month: Int, year: Int, calendar: Calendar = .current) -> Double {
-        let activeBudgets = financialBudgets.values.filter { $0.isActive && $0.period == .monthly }
-        guard !activeBudgets.isEmpty else { return 0 }
-        let txns = transactionsForMonth(month: month, year: year, calendar: calendar).filter { $0.type == .expense }
-        return txns.reduce(0.0) { partial, txn in
-            let matched = activeBudgets.contains { transaction(txn, matches: $0) }
-            return partial + (matched ? 0 : txn.amount)
-        }
-    }
-
-    package func matchingBudgets(forTransactionTags tags: [String]) -> [FinancialBudget] {
-        let normalized = Set(tags.map(normalizedTagKey))
-        guard !normalized.isEmpty else { return [] }
-        return financialBudgets.values
-            .filter { $0.isActive && !$0.tagKeys.isEmpty }
-            .filter { budget in
-                !Set(budget.tagKeys.map(normalizedTagKey)).isDisjoint(with: normalized)
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    package func conflictingBudgetNames(for budget: FinancialBudget) -> [String] {
-        let targetTags = Set(budget.tagKeys.map(normalizedTagKey))
-        guard !targetTags.isEmpty else { return [] }
-        return financialBudgets.values
-            .filter { $0.id != budget.id && $0.isActive }
-            .filter { other in
-                let otherTags = Set(other.tagKeys.map(normalizedTagKey))
-                return !targetTags.isDisjoint(with: otherTags)
-            }
-            .map(\.name)
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    private func transaction(_ txn: FinancialTransaction, matches budget: FinancialBudget) -> Bool {
-        let transactionTags = Set(txn.tags.map(normalizedTagKey))
-        if transactionTags.isEmpty { return false }
-        let budgetTags = Set(budget.tagKeys.map(normalizedTagKey))
-        return !transactionTags.isDisjoint(with: budgetTags)
-    }
-
-    private func normalizedTagKey(_ tag: String) -> String {
-        tag.trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     private func backfillTransactionTagsFromScheduledTransactionsIfNeeded() {
