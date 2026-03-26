@@ -1201,6 +1201,18 @@ package final class DominoViewModel: ObservableObject {
         }
     }
 
+    /// Recorded transaction for this scheduled occurrence, if any (matched by `dueDate` calendar day).
+    package func financialTransactionCoveringScheduledOccurrence(
+        scheduledTransactionID: UUID,
+        dueDate: Date,
+        calendar: Calendar = .current
+    ) -> FinancialTransaction? {
+        financialTransactions.values.first { txn in
+            txn.scheduledTransactionID == scheduledTransactionID &&
+                calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
+        }
+    }
+
     package func monthlySummary(month: Int, year: Int, calendar: Calendar = .current) -> (income: Double, expenses: Double, net: Double) {
         let transactions = transactionsForMonth(month: month, year: year, calendar: calendar)
         let income = transactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }

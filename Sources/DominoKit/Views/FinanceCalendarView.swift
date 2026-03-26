@@ -5,10 +5,12 @@ package struct FinanceCalendarView: View {
 
     @State private var appliedStartingBalance: Double = 0
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
+    @State private var didInitialScrollToToday = false
 
     private let horizonDays = 150
     private let columnWidth: CGFloat = 172
-    private let minimumDuesLookbackYears = 25
+    /// Cap history so we do not build tens of thousands of day columns or scan decades of months.
+    private let calendarLookbackDays = 548
 
     package init(viewModel: DominoViewModel) {
         self.viewModel = viewModel
@@ -38,26 +40,44 @@ package struct FinanceCalendarView: View {
         let cal = calendar
         let now = Date()
         let todayStart = cal.startOfDay(for: now)
-        guard let defaultPast = cal.date(byAdding: .year, value: -minimumDuesLookbackYears, to: todayStart),
+        guard let historyCap = cal.date(byAdding: .day, value: -calendarLookbackDays, to: todayStart),
               let rangeTo = cal.date(byAdding: .day, value: horizonDays, to: todayStart)
         else { return [] }
 
         let oldestScheduled = viewModel.scheduledTransactions.values
             .map { cal.startOfDay(for: $0.createdAt) }
             .min()
-        let rangeFrom = [defaultPast, oldestScheduled].compactMap(\.self).min() ?? defaultPast
+        let rangeFrom = oldestScheduled.map { max(historyCap, $0) } ?? historyCap
+
+        var paidOccurrenceKeys = Set<String>()
+        var paidRecordedDateByKey: [String: Date] = [:]
+        for txn in viewModel.financialTransactions.values {
+            guard let sid = txn.scheduledTransactionID else { continue }
+            let key = Self.scheduledOccurrenceKey(scheduledID: sid, dueDate: txn.dueDate, calendar: cal)
+            paidOccurrenceKeys.insert(key)
+            paidRecordedDateByKey[key] = txn.date
+        }
 
         let dues = viewModel.expectedDues(from: rangeFrom, to: rangeTo, calendar: cal)
         return FinanceCalendarProjection.buildColumns(
             calendar: cal,
+            rangeStart: rangeFrom,
+            rangeEnd: rangeTo,
             today: now,
-            horizonDays: horizonDays,
             allDues: dues,
             isPaid: { id, due in
-                viewModel.isScheduledOccurrencePaid(scheduledTransactionID: id, dueDate: due, calendar: cal)
+                paidOccurrenceKeys.contains(Self.scheduledOccurrenceKey(scheduledID: id, dueDate: due, calendar: cal))
             },
-            startingBalance: appliedStartingBalance
+            paidRecordedOn: { id, due in
+                paidRecordedDateByKey[Self.scheduledOccurrenceKey(scheduledID: id, dueDate: due, calendar: cal)]
+            },
+            startingBalanceAtTodayStart: appliedStartingBalance
         )
+    }
+
+    private static func scheduledOccurrenceKey(scheduledID: UUID, dueDate: Date, calendar cal: Calendar) -> String {
+        let day = cal.startOfDay(for: dueDate)
+        return "\(scheduledID.uuidString)|\(day.timeIntervalSinceReferenceDate)"
     }
 
     private var header: some View {
@@ -71,20 +91,40 @@ package struct FinanceCalendarView: View {
     private var calendarBody: some View {
         GeometryReader { geo in
             let middleScrollHeight = max(140, geo.size.height - 210)
-            ScrollView(.horizontal, showsIndicators: true) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(Array(dayColumns.enumerated()), id: \.offset) { offset, column in
-                        dayColumn(
-                            column: column,
-                            isToday: offset == 0,
-                            middleHeight: middleScrollHeight
-                        )
-                        .frame(width: columnWidth)
+            let now = Date()
+            let cal = calendar
+            let todayAnchor = cal.startOfDay(for: now)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: true) {
+                    LazyHStack(alignment: .top, spacing: 0) {
+                        ForEach(dayColumns) { column in
+                            dayColumn(
+                                column: column,
+                                isToday: cal.isDate(column.displayDayStart, inSameDayAs: now),
+                                middleHeight: middleScrollHeight
+                            )
+                            .frame(width: columnWidth)
+                            .id(column.displayDayStart)
+                        }
                     }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 4)
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 4)
+                .onAppear {
+                    scheduleScrollToToday(proxy: proxy, todayAnchor: todayAnchor)
+                }
+                .onChange(of: dayColumns.count) { _, _ in
+                    scheduleScrollToToday(proxy: proxy, todayAnchor: todayAnchor)
+                }
             }
+        }
+    }
+
+    private func scheduleScrollToToday(proxy: ScrollViewProxy, todayAnchor: Date) {
+        guard !didInitialScrollToToday, !dayColumns.isEmpty else { return }
+        didInitialScrollToToday = true
+        DispatchQueue.main.async {
+            proxy.scrollTo(todayAnchor, anchor: .center)
         }
     }
 
@@ -179,10 +219,7 @@ package struct FinanceCalendarView: View {
         let isIncome = line.scheduled.type == .income
         let due = line.occurrenceDueDate
         let scheduled = line.scheduled
-        let todayStart = calendar.startOfDay(for: Date())
-        let dueDayStart = calendar.startOfDay(for: due)
-        /// Only overdue **expenses** rolled onto today (not income, not on-time or future dues).
-        let showRecordMenu = scheduled.type == .expense && dueDayStart < todayStart
+        let trailingPadding: CGFloat = 22
 
         return ZStack(alignment: .topTrailing) {
             HStack(alignment: .top, spacing: 0) {
@@ -196,14 +233,14 @@ package struct FinanceCalendarView: View {
                         .lineLimit(4)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.trailing, showRecordMenu ? 22 : 0)
+                        .padding(.trailing, trailingPadding)
 
                     Text(isIncome ? "+\(formatPlainAmount(scheduled.amount))" : "−\(formatPlainAmount(scheduled.amount))")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(isIncome ? Color.green : .primary)
 
                     if !calendar.isDate(due, inSameDayAs: displayDayStart) {
-                        Text("Due \(Self.shortDueFormatter.string(from: due))")
+                        Text("Due: \(Self.shortDueFormatter.string(from: due))")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
                     }
@@ -214,7 +251,14 @@ package struct FinanceCalendarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if showRecordMenu {
+            if line.isPaid {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.green)
+                    .symbolRenderingMode(.hierarchical)
+                    .padding(.top, 4)
+                    .padding(.trailing, 4)
+            } else {
                 Menu {
                     Button("Record on first working day on or after the due date") {
                         let recordedOn = FinancialScheduling.firstWorkingDateOnOrAfter(due, calendar: calendar)
