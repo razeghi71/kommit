@@ -310,43 +310,12 @@ package struct FinanceCalendarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if line.isPaid {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: Self.eventTrailingPaidSymbolPointSize))
-                    .foregroundStyle(Self.harmonizedIncomeGreen)
-                    .symbolRenderingMode(.hierarchical)
-                    .padding(.top, 6)
-                    .padding(.trailing, 6)
-            } else {
-                Menu {
-                    Button("Record on first working day on or after the due date") {
-                        let recordedOn = FinancialRecurrence.firstWorkingDateOnOrAfter(due, calendar: calendar)
-                        recordCommitmentOccurrence(commitment: commitment, dueDate: due, recordedOn: recordedOn)
-                    }
-                    Button("Record on due date") {
-                        recordCommitmentOccurrence(commitment: commitment, dueDate: due, recordedOn: due)
-                    }
-                    Button("Record on Today") {
-                        recordCommitmentOccurrence(commitment: commitment, dueDate: due, recordedOn: Date())
-                    }
-                    Button("Record on custom date…") {
-                        customRecordPayload = FinanceCalendarCustomRecordPayload(commitment: commitment, dueDate: due)
-                    }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: Self.eventTrailingRecordSymbolPointSize))
-                        .foregroundStyle(colors.accent.opacity(0.9))
-                        .symbolRenderingMode(.hierarchical)
-                        .imageScale(.large)
-                        .fixedSize()
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .padding(.top, 6)
-                .padding(.trailing, 6)
-                .contentShape(Rectangle())
-            }
+            eventTrailingIcon(
+                isPaid: line.isPaid,
+                accentColor: colors.accent,
+                commitment: commitment,
+                dueDate: due
+            )
         }
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -438,10 +407,49 @@ package struct FinanceCalendarView: View {
         return (Self.futureUnpaidAccent, Self.futureUnpaidAccent.opacity(0.26))
     }
 
-    /// `checkmark.circle.fill` reads larger than `plus.circle.fill` at equal point size; keep paid at this size.
-    private static let eventTrailingPaidSymbolPointSize: CGFloat = 19
-    /// Slightly larger point size + `.imageScale(.large)` so the record control matches the paid tick optically (Menu labels also tend to compress symbols).
-    private static let eventTrailingRecordSymbolPointSize: CGFloat = 21
+    private static let eventTrailingSymbolSize: CGFloat = 18
+    private static let eventTrailingSymbolFrame: CGFloat = 24
+
+    private func eventTrailingIcon(
+        isPaid: Bool,
+        accentColor: Color,
+        commitment: Commitment,
+        dueDate: Date
+    ) -> some View {
+        Image(systemName: isPaid ? "checkmark.circle.fill" : "plus.circle.fill")
+            .font(.system(size: Self.eventTrailingSymbolSize))
+            .foregroundStyle(.white)
+            .symbolRenderingMode(.hierarchical)
+            .frame(width: Self.eventTrailingSymbolFrame, height: Self.eventTrailingSymbolFrame)
+            .contentShape(Rectangle())
+            .overlay {
+                if !isPaid {
+                    Menu {
+                        Button("Record on first working day on or after the due date") {
+                            let recordedOn = FinancialRecurrence.firstWorkingDateOnOrAfter(dueDate, calendar: calendar)
+                            recordCommitmentOccurrence(commitment: commitment, dueDate: dueDate, recordedOn: recordedOn)
+                        }
+                        Button("Record on due date") {
+                            recordCommitmentOccurrence(commitment: commitment, dueDate: dueDate, recordedOn: dueDate)
+                        }
+                        Button("Record on Today") {
+                            recordCommitmentOccurrence(commitment: commitment, dueDate: dueDate, recordedOn: Date())
+                        }
+                        Button("Record on custom date…") {
+                            customRecordPayload = FinanceCalendarCustomRecordPayload(commitment: commitment, dueDate: dueDate)
+                        }
+                    } label: {
+                        Color.white.opacity(0.001)
+                            .frame(width: Self.eventTrailingSymbolFrame, height: Self.eventTrailingSymbolFrame)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 5)
+            .padding(.trailing, 5)
+    }
 
     /// Cool emerald—pairs with `harmonizedExpenseRed` without clashing like system green vs red.
     private static let harmonizedIncomeGreen = Color(red: 0.20, green: 0.56, blue: 0.46)
