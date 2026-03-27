@@ -11,6 +11,8 @@ package struct FinanceCalendarView: View {
     private let columnWidth: CGFloat = 228
     /// Space left under day columns so they don’t sit flush on the window bottom.
     private let calendarColumnBottomInset: CGFloat = 20
+    /// Per-column balance / In–Out footer height; added to scroll when that footer is hidden (past days).
+    private let financeCalendarBalanceFooterHeight: CGFloat = 96
     /// Cap history so we do not build tens of thousands of day columns or scan decades of months.
     private let calendarLookbackDays = 548
 
@@ -150,6 +152,11 @@ package struct FinanceCalendarView: View {
         columnHeight: CGFloat
     ) -> some View {
         let cal = calendar
+        let isPastDay = column.displayDayStart < todayStart
+        let scrollHeight =
+            isPastDay
+            ? max(188, middleHeight + financeCalendarBalanceFooterHeight)
+            : middleHeight
         return VStack(alignment: .leading, spacing: 0) {
             dayHeader(date: column.displayDayStart, isToday: isToday, calendar: cal)
 
@@ -199,43 +206,45 @@ package struct FinanceCalendarView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 12)
             }
-            .frame(height: middleHeight)
+            .frame(height: scrollHeight)
 
-            Divider()
-                .padding(.horizontal, 8)
+            if !isPastDay {
+                Divider()
+                    .padding(.horizontal, 8)
 
-            let totalIn =
-                column.incomeTotal + column.forecastIncomeTotal + column.forecastRealizedIncomeTotal
-            let totalOut =
-                column.expenseTotal + column.forecastExpenseTotal + column.forecastRealizedExpenseTotal
-            let isNegativeEndBalance = column.endOfDayBalance < 0
+                let totalIn =
+                    column.incomeTotal + column.forecastIncomeTotal + column.forecastRealizedIncomeTotal
+                let totalOut =
+                    column.expenseTotal + column.forecastExpenseTotal + column.forecastRealizedExpenseTotal
+                let isNegativeEndBalance = column.endOfDayBalance < 0
 
-            // Expand to fill height below the scroll so the negative-balance fill isn’t shorter than the column.
-            VStack(alignment: .leading, spacing: 9) {
-                Text(formatAmount(column.endOfDayBalance, positivePrefix: ""))
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(isNegativeEndBalance ? Self.harmonizedExpenseRed : Color.primary)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("In \(formatAmount(totalIn, positivePrefix: "+"))")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    Text("Out \(formatAmount(totalOut, positivePrefix: ""))")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    if isToday, column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
-                        overdueStartCaption(column: column)
+                // Expand to fill height below the scroll so the negative-balance fill isn’t shorter than the column.
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(formatAmount(column.endOfDayBalance, positivePrefix: ""))
+                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(isNegativeEndBalance ? Self.harmonizedExpenseRed : Color.primary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("In \(formatAmount(totalIn, positivePrefix: "+"))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Text("Out \(formatAmount(totalOut, positivePrefix: ""))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        if isToday, column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
+                            overdueStartCaption(column: column)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.horizontal, 12)
-            .padding(.top, 14)
-            .padding(.bottom, 14)
-            .background {
-                if isNegativeEndBalance {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(Self.harmonizedExpenseRed.opacity(0.14))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.horizontal, 12)
+                .padding(.top, 14)
+                .padding(.bottom, 14)
+                .background {
+                    if isNegativeEndBalance {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Self.harmonizedExpenseRed.opacity(0.14))
+                    }
                 }
             }
         }
