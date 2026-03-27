@@ -42,6 +42,19 @@ package struct FinanceCalendarForecastLine: Identifiable, Equatable {
     }
 }
 
+/// A past calendar day entry from a recorded transaction linked to a forecast (actual amount, one row per txn).
+package struct FinanceCalendarForecastRealizedLine: Identifiable, Equatable {
+    package var id: UUID { transaction.id }
+    package let transaction: FinancialTransaction
+    /// Present when the forecast still exists; otherwise use `transaction.name` in the UI.
+    package let forecast: Forecast?
+
+    package init(transaction: FinancialTransaction, forecast: Forecast?) {
+        self.transaction = transaction
+        self.forecast = forecast
+    }
+}
+
 package struct FinanceCalendarDayColumn: Identifiable {
     package var id: Date { displayDayStart }
     package let displayDayStart: Date
@@ -55,11 +68,16 @@ package struct FinanceCalendarDayColumn: Identifiable {
     package let expenseLines: [FinanceCalendarDueLine]
     /// Unpaid expenses due **this calendar day** only (not overdue rollup).
     package let expenseTotal: Double
-    /// Forecast income from forecast lines (always counted for that day).
+    /// Forecast income from projected occurrences (today and future only).
     package let forecastIncomeTotal: Double
     package let forecastExpenseTotal: Double
     package let forecastIncomeLines: [FinanceCalendarForecastLine]
     package let forecastExpenseLines: [FinanceCalendarForecastLine]
+    /// Recorded transactions linked to a forecast on **past** days only (actual amounts).
+    package let forecastRealizedIncomeTotal: Double
+    package let forecastRealizedExpenseTotal: Double
+    package let forecastRealizedIncomeLines: [FinanceCalendarForecastRealizedLine]
+    package let forecastRealizedExpenseLines: [FinanceCalendarForecastRealizedLine]
     package let endOfDayBalance: Double
     /// Unpaid amounts due before today, mirrored on today’s column (expenses reduce today’s start balance).
     package let overdueUnpaidExpenseTotal: Double
@@ -77,6 +95,8 @@ package enum FinanceCalendarProjection {
         today: Date,
         allCommitments: [(commitment: Commitment, date: Date)],
         allForecasts: [(forecast: Forecast, date: Date)],
+        forecastLinkedTransactions: [FinancialTransaction],
+        forecastsByID: [UUID: Forecast],
         isPaid: (UUID, Date) -> Bool,
         paidRecordedOn: (UUID, Date) -> Date?,
         startingBalanceAtTodayStart: Double
@@ -95,6 +115,10 @@ package enum FinanceCalendarProjection {
             var forecastExpenseTotal: Double = 0
             var forecastIncomeLines: [FinanceCalendarForecastLine] = []
             var forecastExpenseLines: [FinanceCalendarForecastLine] = []
+            var forecastRealizedIncomeTotal: Double = 0
+            var forecastRealizedExpenseTotal: Double = 0
+            var forecastRealizedIncomeLines: [FinanceCalendarForecastRealizedLine] = []
+            var forecastRealizedExpenseLines: [FinanceCalendarForecastRealizedLine] = []
         }
 
         var buckets: [Date: Bucket] = [:]
@@ -167,9 +191,28 @@ package enum FinanceCalendarProjection {
             buckets[bucketDay] = bucket
         }
 
+        for txn in forecastLinkedTransactions {
+            guard let fid = txn.forecastID else { continue }
+            let day = calendar.startOfDay(for: txn.date)
+            guard day >= windowStart, day <= windowEnd, day < todayStart else { continue }
+            let forecast = forecastsByID[fid]
+            let line = FinanceCalendarForecastRealizedLine(transaction: txn, forecast: forecast)
+            var bucket = buckets[day] ?? Bucket()
+            switch txn.type {
+            case .income:
+                bucket.forecastRealizedIncomeTotal += txn.amount
+                bucket.forecastRealizedIncomeLines.append(line)
+            case .expense:
+                bucket.forecastRealizedExpenseTotal += txn.amount
+                bucket.forecastRealizedExpenseLines.append(line)
+            }
+            buckets[day] = bucket
+        }
+
         for (forecast, occDate) in allForecasts {
             let occDay = calendar.startOfDay(for: occDate)
-            guard occDay >= windowStart, occDay <= windowEnd else { continue }
+            // Projections only for today and future; past days use realized transactions instead.
+            guard occDay >= todayStart, occDay >= windowStart, occDay <= windowEnd else { continue }
             let line = FinanceCalendarForecastLine(forecast: forecast, occurrenceDate: occDate)
             var bucket = buckets[occDay] ?? Bucket()
             switch forecast.type {
@@ -205,7 +248,10 @@ package enum FinanceCalendarProjection {
         while scan < todayStart {
             let bucket = buckets[scan] ?? Bucket()
             cumulativeUnpaidNetBeforeToday += bucket.incomeTotalUnpaid - bucket.expenseTotalUnpaid
-            cumulativeForecastNetBeforeToday += bucket.forecastIncomeTotal - bucket.forecastExpenseTotal
+            let forecastNet =
+                (bucket.forecastIncomeTotal - bucket.forecastExpenseTotal)
+                + (bucket.forecastRealizedIncomeTotal - bucket.forecastRealizedExpenseTotal)
+            cumulativeForecastNetBeforeToday += forecastNet
             guard let next = calendar.date(byAdding: .day, value: 1, to: scan) else { break }
             scan = next
         }
@@ -215,17 +261,34 @@ package enum FinanceCalendarProjection {
 
         var balance = startingBalanceAtTodayStart - cumulativeUnpaidNetBeforeToday - cumulativeForecastNetBeforeToday
 
+        func sortedRealizedForecastLines(_ lines: [FinanceCalendarForecastRealizedLine]) -> [FinanceCalendarForecastRealizedLine] {
+            func title(_ line: FinanceCalendarForecastRealizedLine) -> String {
+                if let f = line.forecast, !f.name.isEmpty { return f.name }
+                if !line.transaction.name.isEmpty { return line.transaction.name }
+                return ""
+            }
+            return lines.sorted { lhs, rhs in
+                let n1 = title(lhs).localizedCaseInsensitiveCompare(title(rhs))
+                if n1 != .orderedSame { return n1 == .orderedAscending }
+                return lhs.transaction.date < rhs.transaction.date
+            }
+        }
+
         func sortedBucket(_ bucket: Bucket) -> (
             income: [FinanceCalendarDueLine],
             expense: [FinanceCalendarDueLine],
             fcInc: [FinanceCalendarForecastLine],
-            fcExp: [FinanceCalendarForecastLine]
+            fcExp: [FinanceCalendarForecastLine],
+            frInc: [FinanceCalendarForecastRealizedLine],
+            frExp: [FinanceCalendarForecastRealizedLine]
         ) {
             (
                 sortedDueLines(bucket.incomeLines),
                 sortedDueLines(bucket.expenseLines),
                 sortedForecastLines(bucket.forecastIncomeLines),
-                sortedForecastLines(bucket.forecastExpenseLines)
+                sortedForecastLines(bucket.forecastExpenseLines),
+                sortedRealizedForecastLines(bucket.forecastRealizedIncomeLines),
+                sortedRealizedForecastLines(bucket.forecastRealizedExpenseLines)
             )
         }
 
@@ -236,8 +299,8 @@ package enum FinanceCalendarProjection {
             let bucket = buckets[dayCursor] ?? Bucket()
             let incomeTotal = bucket.incomeTotalUnpaid
             let expenseTotal = bucket.expenseTotalUnpaid
-            let fcIncTotal = bucket.forecastIncomeTotal
-            let fcExpTotal = bucket.forecastExpenseTotal
+            let fcIncTotal = bucket.forecastIncomeTotal + bucket.forecastRealizedIncomeTotal
+            let fcExpTotal = bucket.forecastExpenseTotal + bucket.forecastRealizedExpenseTotal
             let isTodayCol = calendar.isDate(dayCursor, inSameDayAs: todayStart)
 
             let startOfDayBalance: Double
@@ -255,17 +318,23 @@ package enum FinanceCalendarProjection {
             let sortedExpense: [FinanceCalendarDueLine]
             let sortedFcInc: [FinanceCalendarForecastLine]
             let sortedFcExp: [FinanceCalendarForecastLine]
+            let sortedFrInc: [FinanceCalendarForecastRealizedLine]
+            let sortedFrExp: [FinanceCalendarForecastRealizedLine]
             if isTodayCol {
                 sortedIncome = sortedDueLines(overdueMirrorIncomeLines) + sortedDueLines(bucket.incomeLines)
                 sortedExpense = sortedDueLines(overdueMirrorExpenseLines) + sortedDueLines(bucket.expenseLines)
                 sortedFcInc = sortedForecastLines(bucket.forecastIncomeLines)
                 sortedFcExp = sortedForecastLines(bucket.forecastExpenseLines)
+                sortedFrInc = sortedRealizedForecastLines(bucket.forecastRealizedIncomeLines)
+                sortedFrExp = sortedRealizedForecastLines(bucket.forecastRealizedExpenseLines)
             } else {
                 let s = sortedBucket(bucket)
                 sortedIncome = s.income
                 sortedExpense = s.expense
                 sortedFcInc = s.fcInc
                 sortedFcExp = s.fcExp
+                sortedFrInc = s.frInc
+                sortedFrExp = s.frExp
             }
 
             columns.append(
@@ -277,10 +346,14 @@ package enum FinanceCalendarProjection {
                     incomeLines: sortedIncome,
                     expenseLines: sortedExpense,
                     expenseTotal: expenseTotal,
-                    forecastIncomeTotal: fcIncTotal,
-                    forecastExpenseTotal: fcExpTotal,
+                    forecastIncomeTotal: bucket.forecastIncomeTotal,
+                    forecastExpenseTotal: bucket.forecastExpenseTotal,
                     forecastIncomeLines: sortedFcInc,
                     forecastExpenseLines: sortedFcExp,
+                    forecastRealizedIncomeTotal: bucket.forecastRealizedIncomeTotal,
+                    forecastRealizedExpenseTotal: bucket.forecastRealizedExpenseTotal,
+                    forecastRealizedIncomeLines: sortedFrInc,
+                    forecastRealizedExpenseLines: sortedFrExp,
                     endOfDayBalance: balance,
                     overdueUnpaidExpenseTotal: isTodayCol ? overdueExpenseSum : 0,
                     overdueUnpaidIncomeTotal: isTodayCol ? overdueIncomeSum : 0

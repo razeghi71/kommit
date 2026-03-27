@@ -66,6 +66,7 @@ package struct FinanceCalendarView: View {
 
         let commitmentOccurrences = viewModel.expectedCommitmentOccurrences(from: rangeFrom, to: rangeTo, calendar: cal)
         let forecastOccurrences = viewModel.expectedForecastOccurrences(from: rangeFrom, to: rangeTo, calendar: cal)
+        let forecastLinkedTxns = viewModel.financialTransactions.values.filter { $0.forecastID != nil }
         return FinanceCalendarProjection.buildColumns(
             calendar: cal,
             rangeStart: rangeFrom,
@@ -73,6 +74,8 @@ package struct FinanceCalendarView: View {
             today: now,
             allCommitments: commitmentOccurrences,
             allForecasts: forecastOccurrences,
+            forecastLinkedTransactions: Array(forecastLinkedTxns),
+            forecastsByID: viewModel.forecasts,
             isPaid: { id, due in
                 paidOccurrenceKeys.contains(Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal))
             },
@@ -156,15 +159,18 @@ package struct FinanceCalendarView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     let hasCommitments = !column.incomeLines.isEmpty || !column.expenseLines.isEmpty
-                    let hasForecasts = !column.forecastIncomeLines.isEmpty || !column.forecastExpenseLines.isEmpty
-                    if !hasCommitments && !hasForecasts {
+                    let hasForecastProjections =
+                        !column.forecastIncomeLines.isEmpty || !column.forecastExpenseLines.isEmpty
+                    let hasForecastRealized =
+                        !column.forecastRealizedIncomeLines.isEmpty || !column.forecastRealizedExpenseLines.isEmpty
+                    if !hasCommitments && !hasForecastProjections && !hasForecastRealized {
                         Text("—")
                             .font(.system(size: 15))
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 20)
                     } else {
-                        if hasForecasts {
+                        if hasForecastProjections {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(column.forecastIncomeLines) { line in
                                     forecastEventBlock(line, displayDayStart: column.displayDayStart)
@@ -172,6 +178,14 @@ package struct FinanceCalendarView: View {
                                 ForEach(column.forecastExpenseLines) { line in
                                     forecastEventBlock(line, displayDayStart: column.displayDayStart)
                                 }
+                            }
+                        }
+                        if hasForecastRealized {
+                            ForEach(column.forecastRealizedIncomeLines) { line in
+                                forecastRealizedEventBlock(line, displayDayStart: column.displayDayStart)
+                            }
+                            ForEach(column.forecastRealizedExpenseLines) { line in
+                                forecastRealizedEventBlock(line, displayDayStart: column.displayDayStart)
                             }
                         }
                         ForEach(column.incomeLines) { line in
@@ -190,8 +204,10 @@ package struct FinanceCalendarView: View {
             Divider()
                 .padding(.horizontal, 8)
 
-            let totalIn = column.incomeTotal + column.forecastIncomeTotal
-            let totalOut = column.expenseTotal + column.forecastExpenseTotal
+            let totalIn =
+                column.incomeTotal + column.forecastIncomeTotal + column.forecastRealizedIncomeTotal
+            let totalOut =
+                column.expenseTotal + column.forecastExpenseTotal + column.forecastRealizedExpenseTotal
             let isNegativeEndBalance = column.endOfDayBalance < 0
 
             // Expand to fill height below the scroll so the negative-balance fill isn’t shorter than the column.
@@ -376,6 +392,65 @@ package struct FinanceCalendarView: View {
         }
     }
 
+    /// Past-day forecast link: full card using the **transaction** amount (one row per recorded txn).
+    private func forecastRealizedEventBlock(_ line: FinanceCalendarForecastRealizedLine, displayDayStart: Date) -> some View {
+        let cal = calendar
+        let txn = line.transaction
+        let isIncome = txn.type == .income
+        let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
+        let transactionTitle = txn.name.isEmpty ? "Untitled" : txn.name
+        let forecastCaption: String? = {
+            guard let f = line.forecast, !f.name.isEmpty else { return nil }
+            return f.name
+        }()
+        let due = txn.dueDate
+        let showDueCaption = !cal.isDate(due, inSameDayAs: displayDayStart)
+        let accent = Self.forecastRealizedAccent
+        let fill = accent.opacity(0.14)
+
+        return HStack(alignment: .top, spacing: 0) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(accent.opacity(0.92))
+                .frame(width: 5)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(transactionTitle)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(4)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(isIncome ? "+\(formatPlainAmount(txn.amount))" : "−\(formatPlainAmount(txn.amount))")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(amountColor)
+
+                if let forecastCaption {
+                    Text(forecastCaption)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                if showDueCaption {
+                    Text("For: \(Self.shortDueFormatter.string(from: due))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.leading, 10)
+            .padding(.trailing, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(fill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(accent.opacity(0.28), lineWidth: 0.5)
+        }
+    }
+
     private func recordCommitmentOccurrence(commitment: Commitment, dueDate: Date, recordedOn: Date) {
         let txn = FinancialTransaction(
             commitmentID: commitment.id,
@@ -453,6 +528,8 @@ package struct FinanceCalendarView: View {
     private static let dueAccent = harmonizedExpenseRed
     /// Soft azure—cool like the emerald green, distinct from green/red amount text.
     private static let futureUnpaidAccent = Color(red: 0.22, green: 0.52, blue: 0.86)
+    /// Forecast-linked recorded txns (past)—distinct from commitment paid green.
+    private static let forecastRealizedAccent = Color(red: 0.48, green: 0.40, blue: 0.72)
 
     private func formatAmount(_ amount: Double, positivePrefix: String) -> String {
         let formatter = NumberFormatter()
