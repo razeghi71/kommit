@@ -413,8 +413,8 @@ package struct FinanceCalendarView: View {
     ) -> some View {
         Image(systemName: isPaid ? "checkmark.circle.fill" : "plus.circle.fill")
             .font(.system(size: Self.eventTrailingSymbolSize))
-            .foregroundStyle(.white)
-            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(accentColor, .white)
+            .symbolRenderingMode(.palette)
             .frame(width: Self.eventTrailingSymbolFrame, height: Self.eventTrailingSymbolFrame)
             .contentShape(Rectangle())
             .overlay {
