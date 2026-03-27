@@ -1,0 +1,386 @@
+import SwiftUI
+
+// MARK: - Recurrence Preset (Google Calendar-style)
+
+enum RecurrencePreset: Hashable {
+    case doesNotRepeat
+    case daily
+    case weeklyOnDay
+    case monthlyOnDay
+    case annuallyOnDate
+    case everyWeekday
+    case custom
+}
+
+struct CommitmentDraftBaseline: Equatable {
+    var name: String
+    var type: FinancialFlowType
+    var amount: Double
+    var tags: [String]
+    var isActive: Bool
+    var eventDate: Date
+    var recurrence: Recurrence?
+}
+
+// MARK: - Commitment editor
+
+struct CommitmentEditorView: View {
+    @ObservedObject var viewModel: DominoViewModel
+    let commitment: Commitment?
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String = ""
+    @State private var type: FinancialFlowType = .expense
+    @State private var amount: String = ""
+    @State private var tags: [String] = []
+    @State private var tagInput: String = ""
+    @State private var isActive: Bool = true
+    @State private var eventDate: Date = Date()
+
+    @State private var selectedPreset: RecurrencePreset = .doesNotRepeat
+    @State private var customRecurrence: Recurrence?
+    @State private var showCustomRecurrence = false
+    @State private var previousPreset: RecurrencePreset = .doesNotRepeat
+    @State private var draftBaseline: CommitmentDraftBaseline?
+
+    var isEditing: Bool { commitment != nil }
+
+    private var hasUnsavedDraft: Bool {
+        guard let draftBaseline else { return false }
+        return currentDraftSnapshot() != draftBaseline
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            form
+                .padding(16)
+        }
+        .frame(width: 480, height: 440)
+        .interactiveDismissDisabled(hasUnsavedDraft)
+        .onAppear { loadCommitment() }
+        .onChange(of: selectedPreset) { old, new in
+            if new == .custom {
+                previousPreset = old
+                showCustomRecurrence = true
+            }
+        }
+        .sheet(isPresented: $showCustomRecurrence, onDismiss: {
+            if customRecurrence == nil && selectedPreset == .custom {
+                selectedPreset = previousPreset
+            }
+        }) {
+            CustomRecurrenceSheet(
+                initial: customRecurrence ?? recurrenceForPreset(previousPreset),
+                eventDate: eventDate,
+                onSave: { rec in
+                    customRecurrence = rec
+                    showCustomRecurrence = false
+                },
+                onCancel: {
+                    if customRecurrence == nil {
+                        selectedPreset = previousPreset
+                    }
+                    showCustomRecurrence = false
+                }
+            )
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text(isEditing ? "Edit commitment" : "New commitment")
+                .font(.system(size: 15, weight: .semibold))
+            Spacer()
+            Button("Cancel") { cancelEditing() }
+                .buttonStyle(.borderless)
+            Button("Save") { save() }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .padding(12)
+    }
+
+    private func normalizedRecurrenceForDraft() -> Recurrence? {
+        var r = buildRecurrence()
+        r?.startDate = eventDate
+        return r
+    }
+
+    private func currentDraftSnapshot() -> CommitmentDraftBaseline {
+        CommitmentDraftBaseline(
+            name: name.trimmingCharacters(in: .whitespaces),
+            type: type,
+            amount: Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0,
+            tags: tags,
+            isActive: isActive,
+            eventDate: eventDate,
+            recurrence: normalizedRecurrenceForDraft()
+        )
+    }
+
+    private func captureDraftBaseline() {
+        draftBaseline = currentDraftSnapshot()
+    }
+
+    private func cancelEditing() {
+        guard hasUnsavedDraft else {
+            dismiss()
+            return
+        }
+        if DominoViewModel.showDiscardConfirmation(
+            messageText: "Discard changes?",
+            informativeText: "Your edits to this commitment will be lost."
+        ) {
+            dismiss()
+        }
+    }
+
+    private var form: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                LabeledContent("Name") {
+                    TextField("e.g. Rent, Salary", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    LabeledContent("Type") {
+                        Picker("", selection: $type) {
+                            ForEach(FinancialFlowType.allCases, id: \.self) { t in
+                                Text(t.displayName).tag(t)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    LabeledContent("Amount") {
+                        HStack(spacing: 2) {
+                            Text("$")
+                                .foregroundStyle(.secondary)
+                            TextField("0.00", text: $amount)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tags")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    TagInputField(
+                        tags: $tags,
+                        input: $tagInput,
+                        suggestions: tagSuggestions
+                    )
+                }
+
+                Toggle("Active", isOn: $isActive)
+
+                Divider()
+
+                DatePicker("Date", selection: $eventDate, displayedComponents: .date)
+
+                recurrencePicker
+
+                if selectedPreset == .custom, let rec = customRecurrence {
+                    HStack(spacing: 4) {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(rec.description)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Recurrence Picker (Google Calendar-style dropdown)
+
+    private var recurrencePicker: some View {
+        LabeledContent("Repeats") {
+            Picker("", selection: $selectedPreset) {
+                Text("Does not repeat").tag(RecurrencePreset.doesNotRepeat)
+                Divider()
+                Text("Daily").tag(RecurrencePreset.daily)
+                Text(weeklyLabel).tag(RecurrencePreset.weeklyOnDay)
+                Text(monthlyOnDayLabel).tag(RecurrencePreset.monthlyOnDay)
+                Text(annuallyLabel).tag(RecurrencePreset.annuallyOnDate)
+                Text("Every weekday (Monday to Friday)").tag(RecurrencePreset.everyWeekday)
+                Divider()
+                Text("Custom…").tag(RecurrencePreset.custom)
+            }
+        }
+    }
+
+    // MARK: - Dynamic preset labels based on eventDate
+
+    private var eventWeekday: Weekday {
+        let wd = Calendar.current.component(.weekday, from: eventDate)
+        return Weekday.from(calendarWeekday: wd) ?? .monday
+    }
+
+    private var weeklyLabel: String {
+        "Weekly on \(eventWeekday.shortName)"
+    }
+
+    private var eventMonthDay: Int {
+        Calendar.current.component(.day, from: eventDate)
+    }
+
+    private var monthlyOnDayLabel: String {
+        "Monthly on the \(daySuffix(eventMonthDay))"
+    }
+
+    private static let daySuffixMap: [Int: String] = [
+        1: "1st", 2: "2nd", 3: "3rd", 21: "21st", 22: "22nd", 23: "23rd", 31: "31st"
+    ]
+
+    private func daySuffix(_ day: Int) -> String {
+        Self.daySuffixMap[day] ?? "\(day)th"
+    }
+
+    private var annuallyLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d"
+        return "Annually on \(formatter.string(from: eventDate))"
+    }
+
+    // MARK: - Build recurrence from preset
+
+    private func recurrenceForPreset(_ preset: RecurrencePreset) -> Recurrence? {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day], from: eventDate)
+        let monthDay = comps.day ?? 1
+        let month = comps.month ?? 1
+
+        switch preset {
+        case .doesNotRepeat:
+            return nil
+        case .daily:
+            return .everyDay()
+        case .weeklyOnDay:
+            return .everyWeek(on: [eventWeekday])
+        case .monthlyOnDay:
+            return .everyMonth(day: monthDay)
+        case .annuallyOnDate:
+            return .everyYear(month: month, day: monthDay)
+        case .everyWeekday:
+            return .everyWeekday()
+        case .custom:
+            return customRecurrence
+        }
+    }
+
+    private func buildRecurrence() -> Recurrence? {
+        recurrenceForPreset(selectedPreset)
+    }
+
+    // MARK: - Detect preset from existing recurrence
+
+    private func presetForRecurrence(_ rec: Recurrence?) -> RecurrencePreset {
+        guard let rec else { return .doesNotRepeat }
+
+        let wd = eventWeekday
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.month, .day], from: eventDate)
+        let day = comps.day ?? 1
+        let month = comps.month ?? 1
+
+        if rec.frequency == .daily && rec.interval == 1 && rec.end == .never
+            && rec.byWeekday == nil && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .daily
+        }
+
+        if rec.frequency == .weekly && rec.interval == 1 && rec.byWeekday == [wd]
+            && rec.end == .never && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .weeklyOnDay
+        }
+
+        if rec.frequency == .monthly && rec.interval == 1 && rec.byWeekday == nil
+            && rec.byMonthDay == [day] && rec.end == .never && rec.byMonth == nil {
+            return .monthlyOnDay
+        }
+
+        if rec.frequency == .yearly && rec.interval == 1 && rec.byMonth == month
+            && rec.byMonthDay == [day] && rec.end == .never && rec.byWeekday == nil {
+            return .annuallyOnDate
+        }
+
+        if rec.frequency == .weekly && rec.interval == 1
+            && Set(rec.byWeekday ?? []) == Set([Weekday.monday, .tuesday, .wednesday, .thursday, .friday])
+            && rec.end == .never && rec.byMonthDay == nil && rec.byMonth == nil {
+            return .everyWeekday
+        }
+
+        return .custom
+    }
+
+    // MARK: - Load / Save
+
+    private func loadCommitment() {
+        if let existing = commitment {
+            name = existing.name
+            type = existing.type
+            amount = String(format: "%.2f", existing.amount)
+            tags = existing.tags
+            isActive = existing.isActive
+            eventDate = existing.createdAt
+
+            let preset = presetForRecurrence(existing.recurrence)
+            selectedPreset = preset
+            if preset == .custom {
+                customRecurrence = existing.recurrence
+            }
+        }
+        captureDraftBaseline()
+    }
+
+    private func save() {
+        let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
+        var recurrence = buildRecurrence()
+        recurrence?.startDate = eventDate
+
+        let saved = Commitment(
+            id: commitment?.id ?? UUID(),
+            name: name.trimmingCharacters(in: .whitespaces),
+            type: type,
+            amount: amountValue,
+            recurrence: recurrence,
+            tags: tags,
+            isActive: isActive,
+            createdAt: eventDate
+        )
+
+        if isEditing {
+            viewModel.updateCommitment(saved)
+        } else {
+            viewModel.addCommitment(saved)
+        }
+        dismiss()
+    }
+
+    private var tagSuggestions: [String] {
+        let existingTags = viewModel.allFinancialTags()
+        let selected = Set(tags.map { normalizedTagKey($0) })
+        let query = tagInput.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let base = existingTags.filter { !selected.contains(normalizedTagKey($0)) }
+        guard !query.isEmpty else { return Array(base.prefix(8)) }
+
+        return base
+            .filter { $0.localizedCaseInsensitiveContains(query) }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private func normalizedTagKey(_ tag: String) -> String {
+        tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
