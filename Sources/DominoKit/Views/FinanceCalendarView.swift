@@ -223,10 +223,8 @@ package struct FinanceCalendarView: View {
                 Divider()
                     .padding(.horizontal, 8)
 
-                let totalIn =
-                    column.incomeTotal + column.forecastIncomeTotal + column.forecastRealizedIncomeTotal
-                let totalOut =
-                    column.expenseTotal + column.forecastExpenseTotal + column.forecastRealizedExpenseTotal
+                let totalIn = column.incomeTotal + column.forecastIncomeTotal
+                let totalOut = column.expenseTotal + column.forecastExpenseTotal
                 let isNegativeEndBalance = column.endOfDayBalance < 0
 
                 // Expand to fill height below the scroll so the negative-balance fill isn’t shorter than the column.
@@ -412,7 +410,7 @@ package struct FinanceCalendarView: View {
         }
     }
 
-    /// Past-day forecast link: full card using the **transaction** amount (one row per recorded txn).
+    /// Forecast-linked recorded txn: full card using the **transaction** amount (one row per recorded txn).
     private func forecastRealizedEventBlock(_ line: FinanceCalendarForecastRealizedLine, displayDayStart: Date) -> some View {
         let cal = calendar
         let txn = line.transaction

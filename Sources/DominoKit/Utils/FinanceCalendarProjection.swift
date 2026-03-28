@@ -42,7 +42,7 @@ package struct FinanceCalendarForecastLine: Identifiable, Equatable {
     }
 }
 
-/// A past calendar day entry from a recorded transaction linked to a forecast (actual amount, one row per txn).
+/// A calendar day entry from a recorded transaction linked to a forecast (actual amount, one row per txn).
 package struct FinanceCalendarForecastRealizedLine: Identifiable, Equatable {
     package var id: UUID { transaction.id }
     package let transaction: FinancialTransaction
@@ -73,7 +73,7 @@ package struct FinanceCalendarDayColumn: Identifiable {
     package let forecastExpenseTotal: Double
     package let forecastIncomeLines: [FinanceCalendarForecastLine]
     package let forecastExpenseLines: [FinanceCalendarForecastLine]
-    /// Recorded transactions linked to a forecast on **past** days only (actual amounts).
+    /// Recorded transactions linked to a forecast (actual amounts), bucketed by payment `date`. Not included in balance / In–Out totals.
     package let forecastRealizedIncomeTotal: Double
     package let forecastRealizedExpenseTotal: Double
     package let forecastRealizedIncomeLines: [FinanceCalendarForecastRealizedLine]
@@ -191,10 +191,18 @@ package enum FinanceCalendarProjection {
             buckets[bucketDay] = bucket
         }
 
+        // Occurrence days already covered by a linked transaction (match forecast + due day) so we skip projection and avoid double-counting.
+        var forecastOccurrenceDaysWithRealized: Set<String> = []
+        for txn in forecastLinkedTransactions {
+            guard let fid = txn.forecastID else { continue }
+            let dueDay = calendar.startOfDay(for: txn.dueDate)
+            forecastOccurrenceDaysWithRealized.insert("\(fid.uuidString)|\(dueDay.timeIntervalSinceReferenceDate)")
+        }
+
         for txn in forecastLinkedTransactions {
             guard let fid = txn.forecastID else { continue }
             let day = calendar.startOfDay(for: txn.date)
-            guard day >= windowStart, day <= windowEnd, day < todayStart else { continue }
+            guard day >= windowStart, day <= windowEnd else { continue }
             let forecast = forecastsByID[fid]
             let line = FinanceCalendarForecastRealizedLine(transaction: txn, forecast: forecast)
             var bucket = buckets[day] ?? Bucket()
@@ -213,6 +221,8 @@ package enum FinanceCalendarProjection {
             let occDay = calendar.startOfDay(for: occDate)
             // Projections only for today and future; past days use realized transactions instead.
             guard occDay >= todayStart, occDay >= windowStart, occDay <= windowEnd else { continue }
+            let realizedKey = "\(forecast.id.uuidString)|\(occDay.timeIntervalSinceReferenceDate)"
+            if forecastOccurrenceDaysWithRealized.contains(realizedKey) { continue }
             let line = FinanceCalendarForecastLine(forecast: forecast, occurrenceDate: occDate)
             var bucket = buckets[occDay] ?? Bucket()
             switch forecast.type {
@@ -248,9 +258,8 @@ package enum FinanceCalendarProjection {
         while scan < todayStart {
             let bucket = buckets[scan] ?? Bucket()
             cumulativeUnpaidNetBeforeToday += bucket.incomeTotalUnpaid - bucket.expenseTotalUnpaid
-            let forecastNet =
-                (bucket.forecastIncomeTotal - bucket.forecastExpenseTotal)
-                + (bucket.forecastRealizedIncomeTotal - bucket.forecastRealizedExpenseTotal)
+            // Unrealized forecast projections only; realized forecast-linked txns are informational on the column.
+            let forecastNet = bucket.forecastIncomeTotal - bucket.forecastExpenseTotal
             cumulativeForecastNetBeforeToday += forecastNet
             guard let next = calendar.date(byAdding: .day, value: 1, to: scan) else { break }
             scan = next
@@ -299,8 +308,8 @@ package enum FinanceCalendarProjection {
             let bucket = buckets[dayCursor] ?? Bucket()
             let incomeTotal = bucket.incomeTotalUnpaid
             let expenseTotal = bucket.expenseTotalUnpaid
-            let fcIncTotal = bucket.forecastIncomeTotal + bucket.forecastRealizedIncomeTotal
-            let fcExpTotal = bucket.forecastExpenseTotal + bucket.forecastRealizedExpenseTotal
+            let fcIncTotal = bucket.forecastIncomeTotal
+            let fcExpTotal = bucket.forecastExpenseTotal
             let isTodayCol = calendar.isDate(dayCursor, inSameDayAs: todayStart)
 
             let startOfDayBalance: Double
