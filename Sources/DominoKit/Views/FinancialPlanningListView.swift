@@ -229,12 +229,6 @@ struct ForecastRow: View {
                 HStack(spacing: 6) {
                     Text(forecast.name.isEmpty ? "Untitled" : forecast.name)
                         .font(.system(size: 14, weight: .medium))
-                    Text("Forecast")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
                     if !forecast.isActive {
                         Text("Paused")
                             .font(.system(size: 10, weight: .medium))
