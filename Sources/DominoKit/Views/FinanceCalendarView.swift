@@ -478,7 +478,8 @@ package struct FinanceCalendarView: View {
             amount: commitment.amount,
             type: commitment.type,
             date: recordedOn,
-            dueDate: dueDate
+            dueDate: dueDate,
+            tags: commitment.tags
         )
         viewModel.addFinancialTransaction(txn)
     }
