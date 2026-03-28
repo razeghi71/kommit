@@ -6,6 +6,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
     case financialPlanning
     case transactions
     case calendar
+    case summary
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
         case .financialPlanning: "Financial Planning"
         case .transactions: "Transactions"
         case .calendar: "Calendar"
+        case .summary: "Summary"
         }
     }
 
@@ -22,6 +24,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
         case .financialPlanning: "calendar.badge.clock"
         case .transactions: "arrow.left.arrow.right"
         case .calendar: "calendar"
+        case .summary: "chart.bar.xaxis"
         }
     }
 }
@@ -85,6 +88,8 @@ package struct FinancesView: View {
             TransactionsListView(viewModel: viewModel)
         case .calendar:
             FinanceCalendarView(viewModel: viewModel)
+        case .summary:
+            FinanceSummaryView(viewModel: viewModel)
         }
     }
 }
