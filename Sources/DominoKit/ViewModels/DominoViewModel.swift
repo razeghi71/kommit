@@ -103,6 +103,8 @@ package final class DominoViewModel: ObservableObject {
     @Published var commitments: [UUID: Commitment] = [:]
     @Published var forecasts: [UUID: Forecast] = [:]
     @Published var financialTransactions: [UUID: FinancialTransaction] = [:]
+    /// Persisted with the document; drives finance calendar day balances from today onward.
+    @Published package var financeCalendarStartingBalance: Double = 0
     /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
     @Published private(set) var canvasRecenterToken: UInt64 = 0
 
@@ -590,6 +592,7 @@ package final class DominoViewModel: ObservableObject {
         let commitments: [Commitment]?
         let forecasts: [Forecast]?
         let financialTransactions: [FinancialTransaction]?
+        let financeCalendarStartingBalance: Double?
     }
 
     private struct MigratedNodes {
@@ -608,7 +611,8 @@ package final class DominoViewModel: ObservableObject {
                 fileStatusSettings: migrated.fileStatusSettings ?? explicitFileSettings,
                 commitments: document.commitments,
                 forecasts: document.forecasts,
-                financialTransactions: document.financialTransactions
+                financialTransactions: document.financialTransactions,
+                financeCalendarStartingBalance: document.financeCalendarStartingBalance
             )
         }
 
@@ -619,7 +623,8 @@ package final class DominoViewModel: ObservableObject {
             fileStatusSettings: migrated.fileStatusSettings,
             commitments: nil,
             forecasts: nil,
-            financialTransactions: nil
+            financialTransactions: nil,
+            financeCalendarStartingBalance: nil
         )
     }
 
@@ -925,6 +930,7 @@ package final class DominoViewModel: ObservableObject {
         commitments.removeAll()
         forecasts.removeAll()
         financialTransactions.removeAll()
+        financeCalendarStartingBalance = 0
         fileStatusSettings = nil
         editingNodeID = nil
         selectedNodeID = nil
@@ -968,12 +974,14 @@ package final class DominoViewModel: ObservableObject {
         let commitmentList = commitments.values.isEmpty ? nil : Array(commitments.values)
         let forecastList = forecasts.values.isEmpty ? nil : Array(forecasts.values)
         let transactions = financialTransactions.values.isEmpty ? nil : Array(financialTransactions.values)
+        let startingBalanceField = financeCalendarStartingBalance == 0 ? nil : financeCalendarStartingBalance
         let document = DominoDocument(
             nodes: sortedNodes,
             settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings,
             commitments: commitmentList,
             forecasts: forecastList,
-            financialTransactions: transactions
+            financialTransactions: transactions,
+            financeCalendarStartingBalance: startingBalanceField
         )
         guard let data = try? encoder.encode(document) else { return }
         try? data.write(to: url)
@@ -989,6 +997,7 @@ package final class DominoViewModel: ObservableObject {
         forecasts = Dictionary(uniqueKeysWithValues: (loaded.forecasts ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })
         backfillTransactionTagsFromPlanningItemsIfNeeded()
+        financeCalendarStartingBalance = loaded.financeCalendarStartingBalance ?? 0
         fileStatusSettings = loaded.fileStatusSettings
         editingNodeID = nil
         selectedNodeID = nil
@@ -1043,6 +1052,11 @@ package final class DominoViewModel: ObservableObject {
 
     package func deleteFinancialTransaction(_ id: UUID) {
         financialTransactions.removeValue(forKey: id)
+        isDirty = true
+    }
+
+    package func setFinanceCalendarStartingBalance(_ value: Double) {
+        financeCalendarStartingBalance = value
         isDirty = true
     }
 

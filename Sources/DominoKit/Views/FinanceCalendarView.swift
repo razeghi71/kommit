@@ -3,7 +3,6 @@ import SwiftUI
 package struct FinanceCalendarView: View {
     @ObservedObject var viewModel: DominoViewModel
 
-    @State private var appliedStartingBalance: Double = 0
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
     @State private var didInitialScrollToToday = false
 
@@ -86,7 +85,7 @@ package struct FinanceCalendarView: View {
             paidRecordedOn: { id, due in
                 paidRecordedDateByKey[Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal)]
             },
-            startingBalanceAtTodayStart: appliedStartingBalance
+            startingBalanceAtTodayStart: viewModel.financeCalendarStartingBalance
         )
     }
 
@@ -97,7 +96,10 @@ package struct FinanceCalendarView: View {
 
     private func header(onScrollToToday: @escaping () -> Void) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            FinanceCalendarStartingBalanceBar(onApply: { appliedStartingBalance = $0 })
+            FinanceCalendarStartingBalanceBar(
+                balance: viewModel.financeCalendarStartingBalance,
+                onApply: { viewModel.setFinanceCalendarStartingBalance($0) }
+            )
             Spacer()
             Button("Today", action: onScrollToToday)
                 .buttonStyle(.bordered)
@@ -660,8 +662,18 @@ private struct FinanceCalendarCustomRecordSheet: View {
 
 /// Draft text lives here so each keystroke does not rebuild the full calendar (`dayColumns` is expensive).
 private struct FinanceCalendarStartingBalanceBar: View {
-    @State private var draftText: String = "0"
+    private static let displayFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 10
+        f.minimumFractionDigits = 0
+        f.usesGroupingSeparator = false
+        return f
+    }()
+
+    let balance: Double
     var onApply: (Double) -> Void
+    @State private var draftText: String = "0"
 
     var body: some View {
         HStack(spacing: 11) {
@@ -680,5 +692,11 @@ private struct FinanceCalendarStartingBalanceBar: View {
             .buttonStyle(.borderedProminent)
         }
         .environment(\.layoutDirection, .leftToRight)
+        .onAppear { syncDraftFromBalance() }
+        .onChange(of: balance) { _, _ in syncDraftFromBalance() }
+    }
+
+    private func syncDraftFromBalance() {
+        draftText = Self.displayFormatter.string(from: NSNumber(value: balance)) ?? "0"
     }
 }

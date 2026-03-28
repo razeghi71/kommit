@@ -141,6 +141,8 @@ struct DominoDocument: Codable {
     var commitments: [Commitment]?
     var forecasts: [Forecast]?
     var financialTransactions: [FinancialTransaction]?
+    /// Cash balance at the start of “today” for the finance calendar projection; omitted when zero.
+    var financeCalendarStartingBalance: Double?
 
     init(
         format: Int = 4,
@@ -148,7 +150,8 @@ struct DominoDocument: Codable {
         settings: DominoStatusSettings?,
         commitments: [Commitment]? = nil,
         forecasts: [Forecast]? = nil,
-        financialTransactions: [FinancialTransaction]? = nil
+        financialTransactions: [FinancialTransaction]? = nil,
+        financeCalendarStartingBalance: Double? = nil
     ) {
         self.format = format
         self.nodes = nodes
@@ -156,5 +159,6 @@ struct DominoDocument: Codable {
         self.commitments = commitments
         self.forecasts = forecasts
         self.financialTransactions = financialTransactions
+        self.financeCalendarStartingBalance = financeCalendarStartingBalance
     }
 }
