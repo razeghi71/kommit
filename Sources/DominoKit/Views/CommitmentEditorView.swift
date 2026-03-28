@@ -55,10 +55,11 @@ struct CommitmentEditorView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            form
-                .padding(16)
+            ScrollView {
+                form.padding(20)
+            }
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 500, height: 500)
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadCommitment() }
         .onChange(of: selectedPreset) { old, new in
@@ -91,16 +92,17 @@ struct CommitmentEditorView: View {
 
     private var header: some View {
         HStack {
-            Text(isEditing ? "Edit commitment" : "New commitment")
-                .font(.system(size: 15, weight: .semibold))
+            Text(isEditing ? "Edit Commitment" : "New Commitment")
+                .font(.system(size: 14, weight: .semibold))
             Spacer()
             Button("Cancel") { cancelEditing() }
                 .buttonStyle(.borderless)
-            Button("Save") { save() }
+            Button(isEditing ? "Update" : "Save") { save() }
                 .buttonStyle(.borderedProminent)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
-        .padding(12)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     private func normalizedRecurrenceForDraft() -> Recurrence? {
@@ -139,48 +141,52 @@ struct CommitmentEditorView: View {
     }
 
     private var form: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                LabeledContent("Name") {
+        VStack(alignment: .leading, spacing: 16) {
+            FieldGroup("Details") {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Name")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
                     TextField("e.g. Rent, Salary", text: $name)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                HStack {
-                    LabeledContent("Type") {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Type")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
                         Picker("", selection: $type) {
                             ForEach(FinancialFlowType.allCases, id: \.self) { t in
                                 Text(t.displayName).tag(t)
                             }
                         }
                         .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
 
-                    LabeledContent("Amount") {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Amount")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
                         HStack(spacing: 2) {
-                            Text("$")
-                                .foregroundStyle(.secondary)
+                            Text("$").foregroundStyle(.tertiary)
                             TextField("0.00", text: $amount)
                                 .textFieldStyle(.roundedBorder)
                         }
                     }
+                    .frame(width: 130)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tags")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    TagInputField(
-                        tags: $tags,
-                        input: $tagInput,
-                        suggestions: tagSuggestions
-                    )
+                Toggle(isOn: $isActive) {
+                    Text("Active")
+                        .font(.system(size: 12))
                 }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
 
-                Toggle("Active", isOn: $isActive)
-
-                Divider()
-
+            FieldGroup("Schedule") {
                 DatePicker("Date", selection: $eventDate, displayedComponents: .date)
 
                 recurrencePicker
@@ -195,6 +201,14 @@ struct CommitmentEditorView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            FieldGroup("Tags") {
+                TagInputField(
+                    tags: $tags,
+                    input: $tagInput,
+                    suggestions: tagSuggestions
+                )
             }
         }
     }

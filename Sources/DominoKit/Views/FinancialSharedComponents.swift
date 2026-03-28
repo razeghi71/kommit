@@ -1,5 +1,94 @@
 import SwiftUI
 
+// MARK: - Flow Layout
+
+struct FlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 6
+    var verticalSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        computeLayout(in: proposal.width ?? .infinity, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = computeLayout(in: bounds.width, subviews: subviews)
+        for (index, origin) in result.origins.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y),
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private struct LayoutResult {
+        var origins: [CGPoint]
+        var size: CGSize
+    }
+
+    private func computeLayout(in maxWidth: CGFloat, subviews: Subviews) -> LayoutResult {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxX: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + horizontalSpacing
+            maxX = max(maxX, x - horizontalSpacing)
+        }
+
+        return LayoutResult(
+            origins: origins,
+            size: CGSize(width: maxX, height: y + rowHeight)
+        )
+    }
+}
+
+// MARK: - Field Group
+
+struct FieldGroup<Content: View>: View {
+    let title: String?
+    @ViewBuilder let content: () -> Content
+
+    init(_ title: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title {
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.tertiary)
+                    .tracking(0.5)
+                    .padding(.leading, 2)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                content()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+            )
+        }
+    }
+}
+
 // MARK: - Tag input
 
 struct TagInputField: View {
@@ -7,63 +96,57 @@ struct TagInputField: View {
     @Binding var input: String
     let suggestions: [String]
 
+    @FocusState private var isInputFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
+                if !tags.isEmpty {
+                    FlowLayout(horizontalSpacing: 5, verticalSpacing: 5) {
                         ForEach(tags, id: \.self) { tag in
-                            HStack(spacing: 4) {
-                                Text(tag)
-                                    .font(.system(size: 12))
-                                Button {
-                                    removeTag(tag)
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                            chip(for: tag)
                         }
                     }
                 }
+
+                TextField(tags.isEmpty ? "Type to add tags…" : "Add another…", text: $input)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($isInputFocused)
+                    .onSubmit { addTag(input) }
             }
-
-            TextField("Add tag and press Enter", text: $input)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit {
-                    addTag(input)
-                }
-
-            HStack(spacing: 8) {
-                Button("Add Tag") {
-                    addTag(input)
-                }
-                .buttonStyle(.bordered)
-                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Text("You can create new tags here.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(
+                        isInputFocused ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.12),
+                        lineWidth: isInputFocused ? 1.5 : 0.5
+                    )
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { isInputFocused = true }
 
             if !suggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         ForEach(suggestions, id: \.self) { suggestion in
-                            Button {
-                                addTag(suggestion)
-                            } label: {
-                                Text(suggestion)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Capsule().stroke(Color.primary.opacity(0.18), lineWidth: 1))
+                            Button { addTag(suggestion) } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 8, weight: .bold))
+                                    Text(suggestion)
+                                        .font(.system(size: 11))
+                                }
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    Capsule().fill(Color.accentColor.opacity(0.08))
+                                )
                             }
                             .buttonStyle(.plain)
                         }
@@ -71,6 +154,24 @@ struct TagInputField: View {
                 }
             }
         }
+    }
+
+    private func chip(for tag: String) -> some View {
+        HStack(spacing: 3) {
+            Text(tag)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+            Button { removeTag(tag) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 5)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
     }
 
     private func addTag(_ rawTag: String) {

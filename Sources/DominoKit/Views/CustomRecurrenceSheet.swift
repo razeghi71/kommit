@@ -40,46 +40,46 @@ struct CustomRecurrenceSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Custom recurrence")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 16) {
-                repeatEveryRow
-
-                if frequency == .weekly {
-                    weekdaySelector
-                }
-
-                if frequency == .monthly {
-                    monthlySelector
-                }
-
-                if frequency == .yearly {
-                    yearlySelector
-                }
-
-                endsSection
-            }
-            .padding(16)
-
-            Spacer()
-
-            Divider()
-
             HStack {
+                Text("Custom Recurrence")
+                    .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button("Cancel") { cancelCustomRecurrence() }
                     .buttonStyle(.borderless)
                 Button("Done") { onSave(buildRecurrence()) }
                     .buttonStyle(.borderedProminent)
             }
-            .padding(16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    FieldGroup("Repeat") {
+                        repeatEveryRow
+
+                        if frequency == .weekly {
+                            weekdaySelector
+                        }
+
+                        if frequency == .monthly {
+                            monthlySelector
+                        }
+
+                        if frequency == .yearly {
+                            yearlySelector
+                        }
+                    }
+
+                    FieldGroup("Ends") {
+                        endsContent
+                    }
+                }
+                .padding(20)
+            }
         }
-        .frame(width: 400, height: 420)
+        .frame(width: 420, height: 440)
         .interactiveDismissDisabled(hasUnsavedCustomRecurrenceDraft)
         .onAppear { loadInitial() }
     }
@@ -191,12 +191,8 @@ struct CustomRecurrenceSheet: View {
         }
     }
 
-    private var endsSection: some View {
+    private var endsContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Ends")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-
             Picker("", selection: $endMode) {
                 Text("Never").tag(RecurrenceEndMode.never)
                 Text("On date").tag(RecurrenceEndMode.onDate)

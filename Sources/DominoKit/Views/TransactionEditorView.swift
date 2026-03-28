@@ -65,10 +65,10 @@ struct TransactionEditorView: View {
             header
             Divider()
             ScrollView {
-                form.padding(16)
+                form.padding(20)
             }
         }
-        .frame(width: 460, height: planningLinkKind == .none ? 500 : 580)
+        .frame(width: 500, height: 580)
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadTransaction() }
         .onChange(of: date) { _, newDate in
@@ -80,15 +80,16 @@ struct TransactionEditorView: View {
     private var header: some View {
         HStack {
             Text(isEditing ? "Edit Transaction" : "New Transaction")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
             Spacer()
             Button("Cancel") { cancelEditing() }
                 .buttonStyle(.borderless)
-            Button("Save") { save() }
+            Button(isEditing ? "Update" : "Save") { save() }
                 .buttonStyle(.borderedProminent)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || planningLinkIncomplete)
         }
-        .padding(12)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     private var planningLinkIncomplete: Bool {
@@ -131,105 +132,120 @@ struct TransactionEditorView: View {
     }
 
     private var form: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            LabeledContent("Planning link") {
-                Picker("", selection: $planningLinkKind) {
-                    ForEach(TransactionPlanningLinkKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
+        VStack(alignment: .leading, spacing: 16) {
+            FieldGroup("Planning Link") {
+                LabeledContent("Link to") {
+                    Picker("", selection: $planningLinkKind) {
+                        ForEach(TransactionPlanningLinkKind.allCases) { kind in
+                            Text(kind.title).tag(kind)
+                        }
                     }
-                }
-                .onChange(of: planningLinkKind) { _, newKind in
-                    switch newKind {
-                    case .none:
-                        selectedCommitmentID = nil
-                        selectedForecastID = nil
-                        selectedDueDate = date
-                    case .commitment:
-                        selectedForecastID = nil
-                        if selectedCommitmentID == nil {
+                    .onChange(of: planningLinkKind) { _, newKind in
+                        switch newKind {
+                        case .none:
+                            selectedCommitmentID = nil
+                            selectedForecastID = nil
                             selectedDueDate = date
-                        }
-                    case .forecast:
-                        selectedCommitmentID = nil
-                        if selectedForecastID == nil {
-                            selectedDueDate = date
+                        case .commitment:
+                            selectedForecastID = nil
+                            if selectedCommitmentID == nil {
+                                selectedDueDate = date
+                            }
+                        case .forecast:
+                            selectedCommitmentID = nil
+                            if selectedForecastID == nil {
+                                selectedDueDate = date
+                            }
                         }
                     }
                 }
-            }
 
-            if planningLinkKind == .commitment {
-                LabeledContent("Commitment") {
-                    Picker("", selection: $selectedCommitmentID) {
-                        Text("Choose…").tag(nil as UUID?)
-                        ForEach(Array(viewModel.commitments.values).sorted { $0.name < $1.name }) { item in
-                            Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
+                if planningLinkKind == .commitment {
+                    LabeledContent("Commitment") {
+                        Picker("", selection: $selectedCommitmentID) {
+                            Text("Choose…").tag(nil as UUID?)
+                            ForEach(Array(viewModel.commitments.values).sorted { $0.name < $1.name }) { item in
+                                Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
+                            }
+                        }
+                        .onChange(of: selectedCommitmentID) { _, id in
+                            applyCommitmentSelection(id)
                         }
                     }
-                    .onChange(of: selectedCommitmentID) { _, id in
-                        applyCommitmentSelection(id)
-                    }
                 }
-            }
 
-            if planningLinkKind == .forecast {
-                LabeledContent("Forecast") {
-                    Picker("", selection: $selectedForecastID) {
-                        Text("Choose…").tag(nil as UUID?)
-                        ForEach(Array(viewModel.forecasts.values).sorted { $0.name < $1.name }) { item in
-                            Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
+                if planningLinkKind == .forecast {
+                    LabeledContent("Forecast") {
+                        Picker("", selection: $selectedForecastID) {
+                            Text("Choose…").tag(nil as UUID?)
+                            ForEach(Array(viewModel.forecasts.values).sorted { $0.name < $1.name }) { item in
+                                Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
+                            }
+                        }
+                        .onChange(of: selectedForecastID) { _, id in
+                            applyForecastSelection(id)
                         }
                     }
-                    .onChange(of: selectedForecastID) { _, id in
-                        applyForecastSelection(id)
-                    }
+                }
+
+                if planningLinkKind != .none {
+                    instancePicker
                 }
             }
 
-            LabeledContent("Name") {
-                TextField("e.g. Rent March", text: $name)
-                    .textFieldStyle(.roundedBorder)
-            }
+            FieldGroup("Details") {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Name")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    TextField("e.g. Rent March", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
 
-            HStack {
-                LabeledContent("Type") {
-                    Picker("", selection: $type) {
-                        ForEach(FinancialFlowType.allCases, id: \.self) { t in
-                            Text(t.displayName).tag(t)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Type")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: $type) {
+                            ForEach(FinancialFlowType.allCases, id: \.self) { t in
+                                Text(t.displayName).tag(t)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Amount")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 2) {
+                            Text("$").foregroundStyle(.tertiary)
+                            TextField("0.00", text: $amount)
+                                .textFieldStyle(.roundedBorder)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .frame(width: 130)
                 }
 
-                LabeledContent("Amount") {
-                    HStack(spacing: 2) {
-                        Text("$").foregroundStyle(.secondary)
-                        TextField("0.00", text: $amount)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
+                DatePicker("Payment date", selection: $date, displayedComponents: .date)
             }
 
-            if planningLinkKind != .none {
-                instancePicker
-            }
-
-            DatePicker("Payment date", selection: $date, displayedComponents: .date)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Tags")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+            FieldGroup("Tags & Notes") {
                 TagInputField(
                     tags: $tags,
                     input: $tagInput,
                     suggestions: tagSuggestions
                 )
-            }
 
-            LabeledContent("Note") {
-                TextField("Optional", text: $note)
-                    .textFieldStyle(.roundedBorder)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Note")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    TextField("Optional", text: $note)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
         }
     }
