@@ -7,7 +7,8 @@ struct FinancialTransactionDraftBaseline: Equatable {
     var type: FinancialFlowType
     var amount: Double
     var date: Date
-    var dueDate: Date
+    /// Commitment occurrence only; nil for forecast or unlinked.
+    var dueDate: Date?
     var tags: [String]
     var note: String?
     var commitmentID: UUID?
@@ -106,7 +107,7 @@ struct TransactionEditorView: View {
             type: type,
             amount: Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0,
             date: date,
-            dueDate: selectedDueDate,
+            dueDate: planningLinkKind == .commitment ? selectedDueDate : nil,
             tags: tags,
             note: note.trimmingCharacters(in: .whitespaces).nilIfEmpty,
             commitmentID: planningLinkKind == .commitment ? selectedCommitmentID : nil,
@@ -153,9 +154,6 @@ struct TransactionEditorView: View {
                             }
                         case .forecast:
                             selectedCommitmentID = nil
-                            if selectedForecastID == nil {
-                                selectedDueDate = date
-                            }
                         }
                     }
                 }
@@ -275,27 +273,6 @@ struct TransactionEditorView: View {
                             .font(.system(size: 13, weight: .medium))
                     }
                 }
-            } else if planningLinkKind == .forecast,
-                let id = selectedForecastID,
-                let forecastItem = viewModel.forecasts[id] {
-                if forecastItem.isRecurring {
-                    let instances = computeInstances(for: forecastItem)
-                    LabeledContent("For occurrence") {
-                        Picker("", selection: $selectedDueDate) {
-                            ForEach(instances, id: \.self) { d in
-                                Text(Self.instanceDateFormatter.string(from: d)).tag(d)
-                            }
-                        }
-                    }
-                } else {
-                    HStack {
-                        Text("For occurrence")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(Self.instanceDateFormatter.string(from: forecastItem.createdAt))
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                }
             }
         }
     }
@@ -309,25 +286,8 @@ struct TransactionEditorView: View {
         )
     }
 
-    private func computeInstances(for forecastItem: Forecast) -> [Date] {
-        FinancialRecurrence.recurrenceInstances(
-            for: forecastItem,
-            centerMonth: defaultMonth,
-            centerYear: defaultYear,
-            calendar: Calendar.current
-        )
-    }
-
     private func nearestInstance(for commitmentItem: Commitment) -> Date {
         let instances = computeInstances(for: commitmentItem)
-        let cal = Calendar.current
-        guard !instances.isEmpty else { return Date() }
-        let anchor = cal.date(from: DateComponents(year: defaultYear, month: defaultMonth, day: 15)) ?? Date()
-        return instances.min(by: { abs($0.timeIntervalSince(anchor)) < abs($1.timeIntervalSince(anchor)) }) ?? instances[0]
-    }
-
-    private func nearestInstance(for forecastItem: Forecast) -> Date {
-        let instances = computeInstances(for: forecastItem)
         let cal = Calendar.current
         guard !instances.isEmpty else { return Date() }
         let anchor = cal.date(from: DateComponents(year: defaultYear, month: defaultMonth, day: 15)) ?? Date()
@@ -353,20 +313,12 @@ struct TransactionEditorView: View {
     }
 
     private func applyForecastSelection(_ id: UUID?) {
-        guard let id, let item = viewModel.forecasts[id] else {
-            selectedDueDate = date
-            return
-        }
+        guard let id, let item = viewModel.forecasts[id] else { return }
         if !isEditing {
             name = item.name
             type = item.type
             amount = String(format: "%.2f", item.amount)
             tags = item.tags
-        }
-        if !item.isRecurring {
-            selectedDueDate = item.createdAt
-        } else {
-            selectedDueDate = nearestInstance(for: item)
         }
     }
 
@@ -384,7 +336,7 @@ struct TransactionEditorView: View {
             type = txn.type
             amount = String(format: "%.2f", txn.amount)
             date = txn.date
-            selectedDueDate = txn.dueDate
+            selectedDueDate = txn.dueDate ?? txn.date
             tags = txn.tags
             note = txn.note ?? ""
             if txn.commitmentID != nil {
@@ -402,21 +354,12 @@ struct TransactionEditorView: View {
                 selectedDueDate = txn.date
             }
             if planningLinkKind == .commitment, let commitmentID = txn.commitmentID,
-                let commitmentItem = viewModel.commitments[commitmentID], commitmentItem.isRecurring {
+                let commitmentItem = viewModel.commitments[commitmentID], commitmentItem.isRecurring,
+                let storedDue = txn.dueDate {
                 let instances = computeInstances(for: commitmentItem)
                 if let resolved = FinancialRecurrence.matchingOccurrence(
                     in: instances,
-                    forStoredDueDate: txn.dueDate,
-                    calendar: Calendar.current
-                ) {
-                    selectedDueDate = resolved
-                }
-            } else if planningLinkKind == .forecast, let forecastID = txn.forecastID,
-                let forecastItem = viewModel.forecasts[forecastID], forecastItem.isRecurring {
-                let instances = computeInstances(for: forecastItem)
-                if let resolved = FinancialRecurrence.matchingOccurrence(
-                    in: instances,
-                    forStoredDueDate: txn.dueDate,
+                    forStoredDueDate: storedDue,
                     calendar: Calendar.current
                 ) {
                     selectedDueDate = resolved
@@ -449,7 +392,7 @@ struct TransactionEditorView: View {
 
         let savedCommitmentID = planningLinkKind == .commitment ? selectedCommitmentID : nil
         let savedForecastID = planningLinkKind == .forecast ? selectedForecastID : nil
-        let effectiveDueDate = planningLinkKind == .none ? date : selectedDueDate
+        let savedDueDate: Date? = planningLinkKind == .commitment ? selectedDueDate : nil
         let saved = FinancialTransaction(
             id: transaction?.id ?? UUID(),
             commitmentID: savedCommitmentID,
@@ -458,7 +401,7 @@ struct TransactionEditorView: View {
             amount: amountValue,
             type: type,
             date: date,
-            dueDate: effectiveDueDate,
+            dueDate: savedDueDate,
             tags: tags,
             note: note.trimmingCharacters(in: .whitespaces).nilIfEmpty
         )

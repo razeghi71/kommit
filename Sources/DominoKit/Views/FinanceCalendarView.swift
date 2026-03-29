@@ -61,8 +61,8 @@ package struct FinanceCalendarView: View {
         var paidOccurrenceKeys = Set<String>()
         var paidRecordedDateByKey: [String: Date] = [:]
         for txn in viewModel.financialTransactions.values {
-            guard let sid = txn.commitmentID else { continue }
-            let key = Self.commitmentOccurrenceKey(commitmentID: sid, dueDate: txn.dueDate, calendar: cal)
+            guard let sid = txn.commitmentID, let due = txn.dueDate else { continue }
+            let key = Self.commitmentOccurrenceKey(commitmentID: sid, dueDate: due, calendar: cal)
             paidOccurrenceKeys.insert(key)
             paidRecordedDateByKey[key] = txn.date
         }
@@ -411,8 +411,7 @@ package struct FinanceCalendarView: View {
     }
 
     /// Forecast-linked recorded txn: full card using the **transaction** amount (one row per recorded txn).
-    private func forecastRealizedEventBlock(_ line: FinanceCalendarForecastRealizedLine, displayDayStart: Date) -> some View {
-        let cal = calendar
+    private func forecastRealizedEventBlock(_ line: FinanceCalendarForecastRealizedLine, displayDayStart _: Date) -> some View {
         let txn = line.transaction
         let isIncome = txn.type == .income
         let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
@@ -421,8 +420,6 @@ package struct FinanceCalendarView: View {
             guard let f = line.forecast, !f.name.isEmpty else { return nil }
             return f.name
         }()
-        let due = txn.dueDate
-        let showDueCaption = !cal.isDate(due, inSameDayAs: displayDayStart)
         let accent = Self.forecastRealizedAccent
         let fill = accent.opacity(0.14)
 
@@ -444,12 +441,6 @@ package struct FinanceCalendarView: View {
 
                 if let forecastCaption {
                     Text(forecastCaption)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-
-                if showDueCaption {
-                    Text("For: \(Self.shortDueFormatter.string(from: due))")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

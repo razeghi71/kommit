@@ -649,8 +649,8 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
     var type: FinancialFlowType
     /// The date the payment was actually made.
     var date: Date
-    /// The due/occurrence date this transaction covers (may differ from payment date).
-    var dueDate: Date
+    /// Commitment occurrence this payment covers (same calendar day as the due occurrence). Nil for forecast-linked and unlinked transactions.
+    var dueDate: Date?
     var tags: [String]
     var note: String?
 
@@ -662,7 +662,7 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
         amount: Double = 0,
         type: FinancialFlowType = .expense,
         date: Date = Date(),
-        dueDate: Date = Date(),
+        dueDate: Date? = nil,
         tags: [String] = [],
         note: String? = nil
     ) {
@@ -700,7 +700,13 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
         amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0
         type = try container.decodeIfPresent(FinancialFlowType.self, forKey: .type) ?? .expense
         date = try container.decodeIfPresent(Date.self, forKey: .date) ?? Date()
-        dueDate = try container.decodeIfPresent(Date.self, forKey: .dueDate) ?? date
+        if forecastID != nil {
+            dueDate = nil
+        } else if commitmentID != nil {
+            dueDate = try container.decodeIfPresent(Date.self, forKey: .dueDate) ?? date
+        } else {
+            dueDate = nil
+        }
         tags = Self.normalizedTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
         note = try container.decodeIfPresent(String.self, forKey: .note)
     }
@@ -714,7 +720,7 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
         try container.encode(amount, forKey: .amount)
         try container.encode(type, forKey: .type)
         try container.encode(date, forKey: .date)
-        try container.encode(dueDate, forKey: .dueDate)
+        try container.encodeIfPresent(dueDate, forKey: .dueDate)
         try container.encode(Self.normalizedTags(from: tags), forKey: .tags)
         try container.encodeIfPresent(note, forKey: .note)
     }

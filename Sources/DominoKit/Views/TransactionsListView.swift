@@ -160,7 +160,10 @@ struct TransactionRow: View {
         } else {
             name = "Planning item"
         }
-        let due = Self.dateFormatter.string(from: transaction.dueDate)
+        if transaction.forecastID != nil {
+            return name
+        }
+        let due = Self.dateFormatter.string(from: transaction.dueDate ?? transaction.date)
         return "\(name): \(due) occurrence"
     }
 

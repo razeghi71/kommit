@@ -191,12 +191,12 @@ package enum FinanceCalendarProjection {
             buckets[bucketDay] = bucket
         }
 
-        // Occurrence days already covered by a linked transaction (match forecast + due day) so we skip projection and avoid double-counting.
+        // Calendar days with a forecast-linked payment: skip projected line on that day for that forecast (keyed by payment date, not a stored occurrence).
         var forecastOccurrenceDaysWithRealized: Set<String> = []
         for txn in forecastLinkedTransactions {
             guard let fid = txn.forecastID else { continue }
-            let dueDay = calendar.startOfDay(for: txn.dueDate)
-            forecastOccurrenceDaysWithRealized.insert("\(fid.uuidString)|\(dueDay.timeIntervalSinceReferenceDate)")
+            let payDay = calendar.startOfDay(for: txn.date)
+            forecastOccurrenceDaysWithRealized.insert("\(fid.uuidString)|\(payDay.timeIntervalSinceReferenceDate)")
         }
 
         for txn in forecastLinkedTransactions {

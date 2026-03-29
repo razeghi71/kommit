@@ -161,8 +161,8 @@ extension DominoViewModel {
     /// Whether a recorded financial transaction already covers this commitment occurrence (same calendar day as `dueDate`).
     package func isCommitmentOccurrencePaid(commitmentID: UUID, dueDate: Date, calendar: Calendar = .current) -> Bool {
         financialTransactions.values.contains { txn in
-            txn.commitmentID == commitmentID &&
-                calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
+            guard txn.commitmentID == commitmentID, let txnDue = txn.dueDate else { return false }
+            return calendar.isDate(txnDue, inSameDayAs: dueDate)
         }
     }
 
@@ -202,8 +202,8 @@ extension DominoViewModel {
         calendar: Calendar = .current
     ) -> FinancialTransaction? {
         financialTransactions.values.first { txn in
-            txn.commitmentID == commitmentID &&
-                calendar.isDate(txn.dueDate, inSameDayAs: dueDate)
+            guard txn.commitmentID == commitmentID, let txnDue = txn.dueDate else { return false }
+            return calendar.isDate(txnDue, inSameDayAs: dueDate)
         }
     }
 
