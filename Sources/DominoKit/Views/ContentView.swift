@@ -109,27 +109,18 @@ package struct ContentView: View {
 
     // MARK: - Tab Bar
 
-    @ViewBuilder
     private var tabBar: some View {
-        if topTab == .tasks {
+        ZStack {
+            SegmentedTabs(selection: $topTab) { $0.title }
+
             HStack {
-                SegmentedTabs(selection: $topTab) { $0.title }
-
-                Spacer(minLength: 0)
-
-                HStack {
-                    Spacer(minLength: 0)
-                    if isSearchPresented {
-                        searchField
-                    }
+                Spacer()
+                if topTab == .tasks, isSearchPresented {
+                    searchField
                 }
             }
-        } else {
-            HStack {
-                SegmentedTabs(selection: $topTab) { $0.title }
-                Spacer(minLength: 0)
-            }
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Tasks Content
