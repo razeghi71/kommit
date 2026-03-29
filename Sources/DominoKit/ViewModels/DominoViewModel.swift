@@ -144,6 +144,15 @@ package final class DominoViewModel: ObservableObject {
         currentFileURL == nil && nodes.isEmpty && !suppressStartHubForEmptyDocument
     }
 
+    /// Main window title: file name, `Untitled` for a new board without a path, or `Domino` on the start hub. Prefix `*` when `isDirty`.
+    package var documentWindowTitle: String {
+        if shouldShowStartHub {
+            return "Domino"
+        }
+        let baseName = currentFileURL?.lastPathComponent ?? "Untitled"
+        return isDirty ? "*" + baseName : baseName
+    }
+
     /// Clears the document and resets the suppress flag so the start hub shows.
     package func resetToStartHub() {
         nodes.removeAll()

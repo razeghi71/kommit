@@ -19,6 +19,12 @@ struct DominoApp: App {
                         appDelegate.mainWindow = window
                         appDelegate.configureWindow(window)
                     }
+                    appDelegate.syncMainWindowDocumentTitle(with: viewModel)
+                }
+                .onReceive(viewModel.objectWillChange) { _ in
+                    DispatchQueue.main.async {
+                        appDelegate.syncMainWindowDocumentTitle(with: viewModel)
+                    }
                 }
         }
         .defaultSize(width: 1200, height: 800)
@@ -146,11 +152,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     func configureWindow(_ window: NSWindow) {
         window.delegate = self
-        window.titleVisibility = .hidden
+        window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unifiedCompact
         window.isMovableByWindowBackground = false
         window.backgroundColor = AppColors.canvasBackground
+        if window === mainWindow, let viewModel {
+            window.title = viewModel.documentWindowTitle
+        }
+    }
+
+    func syncMainWindowDocumentTitle(with viewModel: DominoViewModel) {
+        mainWindow?.title = viewModel.documentWindowTitle
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
