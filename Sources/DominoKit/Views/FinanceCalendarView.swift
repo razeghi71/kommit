@@ -328,7 +328,7 @@ package struct FinanceCalendarView: View {
         let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
         let due = line.occurrenceDueDate
         let commitment = line.commitment
-        let trailingPadding: CGFloat = 30
+        let trailingPadding: CGFloat = line.isPaid ? 10 : 30
 
         return ZStack(alignment: .topTrailing) {
             ZStack {
@@ -517,20 +517,23 @@ package struct FinanceCalendarView: View {
     private static let eventTrailingSymbolSize: CGFloat = 18
     private static let eventTrailingSymbolFrame: CGFloat = 24
 
+    @ViewBuilder
     private func eventTrailingIcon(
         isPaid: Bool,
         accentColor: Color,
         commitment: Commitment,
         dueDate: Date
     ) -> some View {
-        Image(systemName: isPaid ? "checkmark.circle.fill" : "plus.circle.fill")
-            .font(.system(size: Self.eventTrailingSymbolSize))
-            .foregroundStyle(accentColor, .white)
-            .symbolRenderingMode(.palette)
-            .frame(width: Self.eventTrailingSymbolFrame, height: Self.eventTrailingSymbolFrame)
-            .contentShape(Rectangle())
-            .overlay {
-                if !isPaid {
+        if isPaid {
+            EmptyView()
+        } else {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: Self.eventTrailingSymbolSize))
+                .foregroundStyle(accentColor, .white)
+                .symbolRenderingMode(.palette)
+                .frame(width: Self.eventTrailingSymbolFrame, height: Self.eventTrailingSymbolFrame)
+                .contentShape(Rectangle())
+                .overlay {
                     Menu {
                         Button("Record on first working day on or after the due date") {
                             let recordedOn = FinancialRecurrence.firstWorkingDateOnOrAfter(dueDate, calendar: calendar)
@@ -553,9 +556,9 @@ package struct FinanceCalendarView: View {
                     .menuIndicator(.hidden)
                     .buttonStyle(.plain)
                 }
-            }
-            .padding(.top, 5)
-            .padding(.trailing, 5)
+                .padding(.top, 5)
+                .padding(.trailing, 5)
+        }
     }
 
     /// Cool emerald—pairs with `harmonizedExpenseRed` without clashing like system green vs red.
