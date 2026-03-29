@@ -38,6 +38,8 @@ struct TransactionEditorView: View {
     let defaultYear: Int
     var prefilledCommitmentID: UUID?
     var prefilledDueDate: Date?
+    var prefilledForecastID: UUID?
+    var prefilledPaymentDate: Date?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -382,6 +384,14 @@ struct TransactionEditorView: View {
                         selectedDueDate = resolved
                     }
                 }
+            }
+        } else if let prefilledForecastUUID = prefilledForecastID {
+            planningLinkKind = .forecast
+            selectedForecastID = prefilledForecastUUID
+            selectedCommitmentID = nil
+            applyForecastSelection(prefilledForecastUUID)
+            if let payDate = prefilledPaymentDate {
+                date = payDate
             }
         }
         captureDraftBaseline()

@@ -219,18 +219,20 @@ package enum FinanceCalendarProjection {
 
         for (forecast, occDate) in allForecasts {
             let occDay = calendar.startOfDay(for: occDate)
-            // Projections only for today and future; past days use realized transactions instead.
-            guard occDay >= todayStart, occDay >= windowStart, occDay <= windowEnd else { continue }
-            let realizedKey = "\(forecast.id.uuidString)|\(occDay.timeIntervalSinceReferenceDate)"
-            if forecastOccurrenceDaysWithRealized.contains(realizedKey) { continue }
+            guard occDay >= windowStart, occDay <= windowEnd else { continue }
+            let isPastDay = occDay < todayStart
+            if !isPastDay {
+                let realizedKey = "\(forecast.id.uuidString)|\(occDay.timeIntervalSinceReferenceDate)"
+                if forecastOccurrenceDaysWithRealized.contains(realizedKey) { continue }
+            }
             let line = FinanceCalendarForecastLine(forecast: forecast, occurrenceDate: occDate)
             var bucket = buckets[occDay] ?? Bucket()
             switch forecast.type {
             case .income:
-                bucket.forecastIncomeTotal += forecast.amount
+                if !isPastDay { bucket.forecastIncomeTotal += forecast.amount }
                 bucket.forecastIncomeLines.append(line)
             case .expense:
-                bucket.forecastExpenseTotal += forecast.amount
+                if !isPastDay { bucket.forecastExpenseTotal += forecast.amount }
                 bucket.forecastExpenseLines.append(line)
             }
             buckets[occDay] = bucket

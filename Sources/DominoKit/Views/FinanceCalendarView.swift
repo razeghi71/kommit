@@ -4,6 +4,7 @@ package struct FinanceCalendarView: View {
     @ObservedObject var viewModel: DominoViewModel
 
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
+    @State private var forecastQuickLogPayload: FinanceCalendarForecastQuickLogPayload?
     @State private var didInitialScrollToToday = false
 
     private let horizonDays = 150
@@ -35,6 +36,17 @@ package struct FinanceCalendarView: View {
                     customRecordPayload = nil
                 },
                 onCancel: { customRecordPayload = nil }
+            )
+        }
+        .sheet(item: $forecastQuickLogPayload) { payload in
+            let comps = Calendar.current.dateComponents([.year, .month], from: payload.occurrenceDate)
+            TransactionEditorView(
+                viewModel: viewModel,
+                transaction: nil,
+                defaultMonth: comps.month ?? 1,
+                defaultYear: comps.year ?? 2026,
+                prefilledForecastID: payload.forecast.id,
+                prefilledPaymentDate: payload.occurrenceDate
             )
         }
     }
@@ -191,10 +203,10 @@ package struct FinanceCalendarView: View {
                         if hasForecastProjections {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(column.forecastIncomeLines) { line in
-                                    forecastEventBlock(line, displayDayStart: column.displayDayStart)
+                                    forecastEventBlock(line, displayDayStart: column.displayDayStart, isPastDay: isPastDay)
                                 }
                                 ForEach(column.forecastExpenseLines) { line in
-                                    forecastEventBlock(line, displayDayStart: column.displayDayStart)
+                                    forecastEventBlock(line, displayDayStart: column.displayDayStart, isPastDay: isPastDay)
                                 }
                             }
                         }
@@ -371,7 +383,7 @@ package struct FinanceCalendarView: View {
         }
     }
 
-    private func forecastEventBlock(_ line: FinanceCalendarForecastLine, displayDayStart: Date) -> some View {
+    private func forecastEventBlock(_ line: FinanceCalendarForecastLine, displayDayStart: Date, isPastDay: Bool) -> some View {
         let cal = calendar
         let forecast = line.forecast
         let isIncome = forecast.type == .income
@@ -396,10 +408,25 @@ package struct FinanceCalendarView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
-            Text(amountText)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(amountColor)
-                .fixedSize(horizontal: true, vertical: false)
+            if isPastDay {
+                Button {
+                    forecastQuickLogPayload = FinanceCalendarForecastQuickLogPayload(
+                        forecast: forecast,
+                        occurrenceDate: displayDayStart
+                    )
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Self.futureUnpaidAccent, .white)
+                        .symbolRenderingMode(.palette)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(amountText)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(amountColor)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 7)
@@ -614,6 +641,12 @@ private struct FinanceCalendarCustomRecordPayload: Identifiable {
     var id: String { "\(commitment.id.uuidString)|\(dueDate.timeIntervalSinceReferenceDate)" }
     let commitment: Commitment
     let dueDate: Date
+}
+
+private struct FinanceCalendarForecastQuickLogPayload: Identifiable {
+    var id: String { "\(forecast.id.uuidString)|\(occurrenceDate.timeIntervalSinceReferenceDate)" }
+    let forecast: Forecast
+    let occurrenceDate: Date
 }
 
 private struct FinanceCalendarCustomRecordSheet: View {
