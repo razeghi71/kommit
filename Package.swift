@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "Domino",
+    name: "Kommit",
     platforms: [.macOS(.v14)],
     targets: [
         .target(
-            name: "DominoKit",
-            path: "Sources/DominoKit"
+            name: "KommitKit",
+            path: "Sources/KommitKit"
         ),
         .executableTarget(
-            name: "Domino",
-            dependencies: ["DominoKit"],
-            path: "Sources/Domino",
+            name: "Kommit",
+            dependencies: ["KommitKit"],
+            path: "Sources/Kommit",
             resources: [.process("Resources")]
         ),
     ]

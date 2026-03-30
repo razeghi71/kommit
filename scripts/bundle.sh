@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="Domino"
-BUNDLE_ID="no.marz.domino"
+APP_NAME="Kommit"
+BUNDLE_ID="no.marz.kommit"
 VERSION="${VERSION:-1.0.0}"
 APP_DIR="build/${APP_NAME}.app"
 ICON_SVG="icon.svg"
-ICON_ICNS="Sources/Domino/Resources/AppIcon.icns"
+ICON_ICNS="Sources/Kommit/Resources/AppIcon.icns"
 
 generate_app_icon() {
     if [[ ! -f "$ICON_SVG" ]]; then

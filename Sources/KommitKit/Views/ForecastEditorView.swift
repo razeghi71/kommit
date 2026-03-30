@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Forecast editor
 
 struct ForecastEditorView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     let forecast: Forecast?
 
     @Environment(\.dismiss) private var dismiss
@@ -110,7 +110,7 @@ struct ForecastEditorView: View {
             dismiss()
             return
         }
-        if DominoViewModel.showDiscardConfirmation(
+        if KommitViewModel.showDiscardConfirmation(
             messageText: "Discard changes?",
             informativeText: "Your edits to this forecast will be lost."
         ) {

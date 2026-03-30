@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Empty-state hub: open a document, start blank, or pick a recent file (VS Code–style orientation).
 package struct StartHubView: View {
-    @ObservedObject package var viewModel: DominoViewModel
+    @ObservedObject package var viewModel: KommitViewModel
 
-    package init(viewModel: DominoViewModel) {
+    package init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
     }
 
@@ -27,7 +27,7 @@ package struct StartHubView: View {
     private var startColumn: some View {
         VStack(alignment: .leading, spacing: 28) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Domino")
+                Text("Kommit")
                     .font(.system(size: 34, weight: .semibold))
                 Text("Life planning on a dependency graph")
                     .font(.title3)

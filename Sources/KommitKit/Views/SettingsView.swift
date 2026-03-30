@@ -23,11 +23,11 @@ private enum SettingsSidebarSection: String, CaseIterable, Identifiable {
 }
 
 package struct SettingsView: View {
-    @ObservedObject package var viewModel: DominoViewModel
+    @ObservedObject package var viewModel: KommitViewModel
     @AppStorage(FinancialPlanningUserDefaultsKey.hideFullyPaidCommitments) private var hideFullyPaidCommitments = true
     @State private var selectedSection: SettingsSidebarSection = .tasks
 
-    package init(viewModel: DominoViewModel) {
+    package init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
     }
 
@@ -175,9 +175,9 @@ package struct SettingsView: View {
 }
 
 private struct StatusSettingsEditor: View {
-    let statuses: [DominoStatusDefinition]
+    let statuses: [KommitStatusDefinition]
     let forFileSettings: Bool
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -197,9 +197,9 @@ private struct StatusSettingsEditor: View {
 }
 
 private struct StatusRow: View {
-    let status: DominoStatusDefinition
+    let status: KommitStatusDefinition
     let forFileSettings: Bool
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
 
     var body: some View {
         HStack(spacing: 12) {
@@ -212,7 +212,7 @@ private struct StatusRow: View {
             )
             .textFieldStyle(.roundedBorder)
 
-            if status.id == DominoStatusSettings.noneStatusID {
+            if status.id == KommitStatusSettings.noneStatusID {
                 Text("No color")
                     .foregroundStyle(.secondary)
                     .frame(width: 120, alignment: .leading)

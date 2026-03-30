@@ -4,7 +4,7 @@ enum NodeDefaults {
     static let size = CGSize(width: 132, height: 44)
 }
 
-struct DominoNode: Identifiable, Equatable, Codable {
+struct KommitNode: Identifiable, Equatable, Codable {
     let id: UUID
     var text: String
     var position: CGPoint

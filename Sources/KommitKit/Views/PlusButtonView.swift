@@ -3,7 +3,7 @@ import SwiftUI
 struct PlusButtonView: View {
     let nodeID: UUID
     let direction: DragDirection
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
 
     @State private var isDragging = false
     @State private var isHovering = false

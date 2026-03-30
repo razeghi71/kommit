@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 
 @MainActor
-package final class DominoViewModel: ObservableObject {
-    @Published var nodes: [UUID: DominoNode] = [:]
-    @Published var systemStatusSettings: DominoStatusSettings
-    @Published var fileStatusSettings: DominoStatusSettings?
+package final class KommitViewModel: ObservableObject {
+    @Published var nodes: [UUID: KommitNode] = [:]
+    @Published var systemStatusSettings: KommitStatusSettings
+    @Published var fileStatusSettings: KommitStatusSettings?
     @Published package var editingNodeID: UUID?
     @Published package var selectedNodeID: UUID?
     @Published package var selectedNodeIDs: Set<UUID> = []
@@ -38,23 +38,23 @@ package final class DominoViewModel: ObservableObject {
 
     private var lastAppliedCanvasRecenterToken: UInt64 = 0
     let userDefaults = UserDefaults.standard
-    private let systemStatusSettingsKey = "domino.systemStatusSettings"
+    private let systemStatusSettingsKey = "kommit.systemStatusSettings"
 
-    static let recentDocumentPathsKey = "domino.recentDocumentPaths"
+    static let recentDocumentPathsKey = "kommit.recentDocumentPaths"
 
     /// Bumped when recent documents change so SwiftUI can refresh lists.
     @Published var recentDocumentsRefreshToken: UInt64 = 0
     /// Set when the user explicitly starts a blank board (⌘N or hub); avoids re-showing the start hub for that empty session.
     @Published var suppressStartHubForEmptyDocument = false
 
-    var undoStack: [[UUID: DominoNode]] = []
-    var redoStack: [[UUID: DominoNode]] = []
+    var undoStack: [[UUID: KommitNode]] = []
+    var redoStack: [[UUID: KommitNode]] = []
     private let maxUndoLevels = 50
     package var isDirty = false
 
     package var canUndo: Bool { !undoStack.isEmpty }
     package var canRedo: Bool { !redoStack.isEmpty }
-    var activeStatusSettings: DominoStatusSettings { fileStatusSettings ?? systemStatusSettings }
+    var activeStatusSettings: KommitStatusSettings { fileStatusSettings ?? systemStatusSettings }
     var hasFileStatusSettings: Bool { fileStatusSettings != nil }
 
     /// Set from the main SwiftUI window (`ContentView`). Used where `EnvironmentValues.openWindow` is unavailable.
@@ -65,17 +65,17 @@ package final class DominoViewModel: ObservableObject {
     }
 
     package init() {
-        systemStatusSettings = DominoViewModel.loadSystemStatusSettings(from: UserDefaults.standard, key: "domino.systemStatusSettings")
+        systemStatusSettings = KommitViewModel.loadSystemStatusSettings(from: UserDefaults.standard, key: "kommit.systemStatusSettings")
     }
 
     package var shouldShowStartHub: Bool {
         currentFileURL == nil && nodes.isEmpty && !suppressStartHubForEmptyDocument
     }
 
-    /// Main window title: file name, `Untitled` for a new board without a path, or `Domino` on the start hub. Prefix `*` when `isDirty`.
+    /// Main window title: file name, `Untitled` for a new board without a path, or `Kommit` on the start hub. Prefix `*` when `isDirty`.
     package var documentWindowTitle: String {
         if shouldShowStartHub {
-            return "Domino"
+            return "Kommit"
         }
         let baseName = currentFileURL?.lastPathComponent ?? "Untitled"
         return isDirty ? "*" + baseName : baseName
@@ -109,11 +109,11 @@ package final class DominoViewModel: ObservableObject {
         selectedNodeIDs.removeAll()
     }
 
-    var sortedNodes: [DominoNode] {
+    var sortedNodes: [KommitNode] {
         Array(nodes.values).sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
-    var visibleNodes: [DominoNode] {
+    var visibleNodes: [KommitNode] {
         let excluded: Set<UUID>
         switch doneVisibility {
         case .showAll: excluded = []
@@ -127,7 +127,7 @@ package final class DominoViewModel: ObservableObject {
     }
 
     private var doneNodeIDs: Set<UUID> {
-        Set(nodes.filter { $0.value.statusID == DominoStatusSettings.doneStatusID }.map(\.key))
+        Set(nodes.filter { $0.value.statusID == KommitStatusSettings.doneStatusID }.map(\.key))
     }
 
     private var doneChainNodeIDs: Set<UUID> {
@@ -152,7 +152,7 @@ package final class DominoViewModel: ObservableObject {
                 }
             }
             visited.formUnion(component)
-            if component.allSatisfy({ nodes[$0]?.statusID == DominoStatusSettings.doneStatusID }) {
+            if component.allSatisfy({ nodes[$0]?.statusID == KommitStatusSettings.doneStatusID }) {
                 result.formUnion(component)
             }
         }
@@ -163,7 +163,7 @@ package final class DominoViewModel: ObservableObject {
         guard let node = nodes[id] else { return false }
         switch doneVisibility {
         case .hideAll:
-            if node.statusID == DominoStatusSettings.doneStatusID { return false }
+            if node.statusID == KommitStatusSettings.doneStatusID { return false }
         case .hideChains:
             if doneChainNodeIDs.contains(id) { return false }
         case .showAll:
@@ -205,8 +205,8 @@ package final class DominoViewModel: ObservableObject {
 
     struct Edge: Identifiable {
         let id: String
-        let parent: DominoNode
-        let child: DominoNode
+        let parent: KommitNode
+        let child: KommitNode
     }
 
     var edges: [Edge] {
@@ -232,7 +232,7 @@ package final class DominoViewModel: ObservableObject {
 
     func addNode(at position: CGPoint) {
         saveSnapshot()
-        let node = DominoNode(position: position)
+        let node = KommitNode(position: position)
         nodes[node.id] = node
         editingNodeID = node.id
     }
@@ -254,7 +254,7 @@ package final class DominoViewModel: ObservableObject {
             }
         }
 
-        let child = DominoNode(position: position, parentIDs: [parentID])
+        let child = KommitNode(position: position, parentIDs: [parentID])
         nodes[child.id] = child
         editingNodeID = child.id
     }
@@ -429,7 +429,7 @@ package final class DominoViewModel: ObservableObject {
         pruneSelectionForDoneChains()
     }
 
-    func statusDefinition(for statusID: UUID?) -> DominoStatusDefinition {
+    func statusDefinition(for statusID: UUID?) -> KommitStatusDefinition {
         activeStatusSettings.definition(for: statusID)
     }
 
@@ -450,7 +450,7 @@ package final class DominoViewModel: ObservableObject {
     func addStatus(forFileSettings: Bool) {
         mutateStatusSettings(forFileSettings: forFileSettings) { settings in
             settings.statusPalette.append(
-                DominoStatusDefinition(
+                KommitStatusDefinition(
                     id: UUID(),
                     name: settings.nextStatusName(),
                     colorHex: settings.nextStatusColorHex()
@@ -467,7 +467,7 @@ package final class DominoViewModel: ObservableObject {
     }
 
     func updateStatusColor(_ id: UUID, colorHex: String, forFileSettings: Bool) {
-        guard id != DominoStatusSettings.noneStatusID else { return }
+        guard id != KommitStatusSettings.noneStatusID else { return }
         mutateStatusSettings(forFileSettings: forFileSettings) { settings in
             guard let index = settings.statusPalette.firstIndex(where: { $0.id == id }) else { return }
             settings.statusPalette[index].colorHex = colorHex
@@ -482,13 +482,13 @@ package final class DominoViewModel: ObservableObject {
     }
 
     func canRemoveStatus(_ id: UUID) -> Bool {
-        id != DominoStatusSettings.noneStatusID
+        id != KommitStatusSettings.noneStatusID
     }
 
-    private func mutateStatusSettings(forFileSettings: Bool, update: (inout DominoStatusSettings) -> Void) {
+    private func mutateStatusSettings(forFileSettings: Bool, update: (inout KommitStatusSettings) -> Void) {
         var settings = forFileSettings ? (fileStatusSettings ?? systemStatusSettings) : systemStatusSettings
         update(&settings)
-        settings = DominoStatusSettings(statusPalette: settings.statusPalette)
+        settings = KommitStatusSettings(statusPalette: settings.statusPalette)
 
         if forFileSettings {
             fileStatusSettings = settings
@@ -501,9 +501,9 @@ package final class DominoViewModel: ObservableObject {
         clearInvalidNodeStatusesForActiveSettings()
     }
 
-    func normalizedStatusID(_ statusID: UUID?, settings: DominoStatusSettings) -> UUID? {
+    func normalizedStatusID(_ statusID: UUID?, settings: KommitStatusSettings) -> UUID? {
         guard let statusID else { return nil }
-        guard statusID != DominoStatusSettings.noneStatusID else { return nil }
+        guard statusID != KommitStatusSettings.noneStatusID else { return nil }
         return settings.containsStatus(statusID) ? statusID : nil
     }
 
@@ -514,16 +514,16 @@ package final class DominoViewModel: ObservableObject {
                 nodes[id]?.legacyColorHex = nil
                 continue
             }
-            if !validIDs.contains(statusID) || statusID == DominoStatusSettings.noneStatusID {
+            if !validIDs.contains(statusID) || statusID == KommitStatusSettings.noneStatusID {
                 nodes[id]?.statusID = nil
             }
             nodes[id]?.legacyColorHex = nil
         }
     }
 
-    private static func loadSystemStatusSettings(from defaults: UserDefaults, key: String) -> DominoStatusSettings {
+    private static func loadSystemStatusSettings(from defaults: UserDefaults, key: String) -> KommitStatusSettings {
         guard let data = defaults.data(forKey: key),
-            let decoded = try? JSONDecoder().decode(DominoStatusSettings.self, from: data)
+            let decoded = try? JSONDecoder().decode(KommitStatusSettings.self, from: data)
         else {
             return .defaultValue
         }

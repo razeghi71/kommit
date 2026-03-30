@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @MainActor
-extension DominoViewModel {
+extension KommitViewModel {
     /// Clears the document and resets the suppress flag so the start hub shows.
     package func resetToStartHub() {
         nodes.removeAll()
@@ -23,7 +23,7 @@ extension DominoViewModel {
         suppressStartHubForEmptyDocument = false
     }
 
-    /// Recent Domino JSON files that still exist on disk (stale paths are removed from storage).
+    /// Recent Kommit JSON files that still exist on disk (stale paths are removed from storage).
     package func recentDocumentURLs() -> [URL] {
         let paths = userDefaults.stringArray(forKey: Self.recentDocumentPathsKey) ?? []
         let valid = paths.filter { FileManager.default.fileExists(atPath: $0) }
@@ -45,8 +45,8 @@ extension DominoViewModel {
         recentDocumentsRefreshToken &+= 1
     }
     private struct DecodedBoard {
-        let nodes: [DominoNode]
-        let fileStatusSettings: DominoStatusSettings?
+        let nodes: [KommitNode]
+        let fileStatusSettings: KommitStatusSettings?
         let commitments: [Commitment]?
         let forecasts: [Forecast]?
         let financialTransactions: [FinancialTransaction]?
@@ -54,15 +54,15 @@ extension DominoViewModel {
     }
 
     private struct MigratedNodes {
-        let nodes: [DominoNode]
-        let fileStatusSettings: DominoStatusSettings?
+        let nodes: [KommitNode]
+        let fileStatusSettings: KommitStatusSettings?
     }
 
     private func decodeBoard(from data: Data) -> DecodedBoard? {
         let decoder = JSONDecoder()
 
-        if let document = try? decoder.decode(DominoDocument.self, from: data) {
-            let explicitFileSettings = document.settings.map { DominoStatusSettings(statusPalette: $0.statusPalette) }
+        if let document = try? decoder.decode(KommitDocument.self, from: data) {
+            let explicitFileSettings = document.settings.map { KommitStatusSettings(statusPalette: $0.statusPalette) }
             let migrated = migrateLoadedNodes(document.nodes, baseSettings: explicitFileSettings ?? systemStatusSettings)
             return DecodedBoard(
                 nodes: migrated.nodes,
@@ -74,7 +74,7 @@ extension DominoViewModel {
             )
         }
 
-        guard let legacyNodes = try? decoder.decode([DominoNode].self, from: data) else { return nil }
+        guard let legacyNodes = try? decoder.decode([KommitNode].self, from: data) else { return nil }
         let migrated = migrateLoadedNodes(legacyNodes, baseSettings: systemStatusSettings)
         return DecodedBoard(
             nodes: migrated.nodes,
@@ -86,8 +86,8 @@ extension DominoViewModel {
         )
     }
 
-    private func migrateLoadedNodes(_ loadedNodes: [DominoNode], baseSettings: DominoStatusSettings) -> MigratedNodes {
-        var migratedNodes: [DominoNode] = []
+    private func migrateLoadedNodes(_ loadedNodes: [KommitNode], baseSettings: KommitStatusSettings) -> MigratedNodes {
+        var migratedNodes: [KommitNode] = []
         migratedNodes.reserveCapacity(loadedNodes.count)
 
         var resolvedSettings = baseSettings
@@ -96,7 +96,7 @@ extension DominoViewModel {
 
         for node in loadedNodes {
             var updated = node
-            let legacyHex = DominoStatusSettings.normalizedHex(node.legacyColorHex)
+            let legacyHex = KommitStatusSettings.normalizedHex(node.legacyColorHex)
 
             if !legacyHex.isEmpty {
                 if let existingStatusID = resolvedSettings.matchingStatusID(forLegacyColorHex: legacyHex) {
@@ -106,16 +106,16 @@ extension DominoViewModel {
                         updated.statusID = reusedStatusID
                     } else {
                         createdFileSettings = true
-                        let newStatus = DominoStatusDefinition(
+                        let newStatus = KommitStatusDefinition(
                             id: UUID(),
                             name: makeUniqueStatusName(
-                                baseName: DominoStatusSettings.legacyFallbackName(for: legacyHex),
+                                baseName: KommitStatusSettings.legacyFallbackName(for: legacyHex),
                                 existingSettings: resolvedSettings
                             ),
                             colorHex: legacyHex
                         )
                         resolvedSettings.statusPalette.append(newStatus)
-                        resolvedSettings = DominoStatusSettings(statusPalette: resolvedSettings.statusPalette)
+                        resolvedSettings = KommitStatusSettings(statusPalette: resolvedSettings.statusPalette)
                         customStatusesByHex[legacyHex] = newStatus.id
                         updated.statusID = newStatus.id
                     }
@@ -134,7 +134,7 @@ extension DominoViewModel {
         )
     }
 
-    private func makeUniqueStatusName(baseName: String, existingSettings: DominoStatusSettings) -> String {
+    private func makeUniqueStatusName(baseName: String, existingSettings: KommitStatusSettings) -> String {
         let existing = Set(existingSettings.statusPalette.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
         let trimmedBase = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = trimmedBase.isEmpty ? "Custom Status" : trimmedBase
@@ -211,7 +211,7 @@ extension DominoViewModel {
     package func saveAs() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "Domino.json"
+        panel.nameFieldStringValue = "Kommit.json"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         currentFileURL = url
         writeToFile(url)
@@ -232,7 +232,7 @@ extension DominoViewModel {
         let forecastList = forecasts.values.isEmpty ? nil : Array(forecasts.values)
         let transactions = financialTransactions.values.isEmpty ? nil : Array(financialTransactions.values)
         let startingBalanceField = financeCalendarStartingBalance == 0 ? nil : financeCalendarStartingBalance
-        let document = DominoDocument(
+        let document = KommitDocument(
             nodes: sortedNodes,
             settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings,
             commitments: commitmentList,

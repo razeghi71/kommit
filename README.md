@@ -2,11 +2,11 @@
 
 <img src="icon.svg" width="128" />
 
-# Domino
+# Kommit
 
 Opinionated Mac app for planning your life.
 
-[![Download](https://img.shields.io/badge/Download-Latest%20Release-blue?style=for-the-badge)](https://github.com/razeghi71/domino/releases/latest/download/Domino.zip)
+[![Download](https://img.shields.io/badge/Download-Latest%20Release-blue?style=for-the-badge)](https://github.com/razeghi71/kommit/releases/latest/download/Kommit.zip)
 
 ![Screenshot](screenshot.png)
 
@@ -14,7 +14,7 @@ Opinionated Mac app for planning your life.
 
 ## Overview
 
-Domino is an app for planning two things: what you need to get done, and how money comes in and goes out. **Tasks** is an infinite canvas for mapping that work as nodes linked by dependency arrows. **Finances** is where you plan recurring money, log transactions, and watch cash flow on a calendar.
+Kommit is an app for planning two things: what you need to get done, and how money comes in and goes out. **Tasks** is an infinite canvas for mapping that work as nodes linked by dependency arrows. **Finances** is where you plan recurring money, log transactions, and watch cash flow on a calendar.
 
 ## Task board
 
@@ -84,7 +84,7 @@ Pick a month to see **income, expenses, and net** for recorded transactions, **s
 
 ## Save & Open
 
-**⌘S** saves your board as a JSON file. **⌘O** opens one. The app warns before discarding unsaved changes. Older Domino files are loaded and migrated automatically.
+**⌘S** saves your board as a JSON file. **⌘O** opens one. The app warns before discarding unsaved changes. Older Kommit (and legacy Domino) JSON files are loaded and migrated automatically.
 
 ## Requirements
 
@@ -96,7 +96,7 @@ Pick a month to see **income, expenses, and net** for recorded transactions, **s
 Run directly from source:
 
 ```
-swift run Domino
+swift run Kommit
 ```
 
 ## Install as macOS App
@@ -107,10 +107,10 @@ Bundle it into a proper `.app`:
 ./scripts/bundle.sh
 ```
 
-This builds a release binary and creates `build/Domino.app`. To install:
+This builds a release binary and creates `build/Kommit.app`. To install:
 
 ```
-cp -R build/Domino.app /Applications/
+cp -R build/Kommit.app /Applications/
 ```
 
 The app is unsigned, so on first launch you may need to right-click > Open (or allow it in System Settings > Privacy & Security).

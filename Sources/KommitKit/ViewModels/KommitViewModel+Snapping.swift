@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-private enum DominoSnapMetrics {
+private enum KommitSnapMetrics {
     static let screenThreshold: CGFloat = 8
     static let proximityPadding: CGFloat = 120
     static let epsilon: CGFloat = 0.0001
@@ -10,7 +10,7 @@ private enum DominoSnapMetrics {
 }
 
 @MainActor
-extension DominoViewModel {
+extension KommitViewModel {
     // MARK: - Alignment / Snapping
 
     private struct SnapCandidate {
@@ -55,15 +55,15 @@ extension DominoViewModel {
     }
 
     private var snapThresholdInCanvas: CGFloat {
-        DominoSnapMetrics.screenThreshold / max(canvasScale, 0.01)
+        KommitSnapMetrics.screenThreshold / max(canvasScale, 0.01)
     }
 
     private var gapCrossAxisToleranceInCanvas: CGFloat {
-        DominoSnapMetrics.gapCrossAxisScreenTolerance / max(canvasScale, 0.01)
+        KommitSnapMetrics.gapCrossAxisScreenTolerance / max(canvasScale, 0.01)
     }
 
     private var gapSnapBonusInCanvas: CGFloat {
-        DominoSnapMetrics.gapSnapScreenBonus / max(canvasScale, 0.01)
+        KommitSnapMetrics.gapSnapScreenBonus / max(canvasScale, 0.01)
     }
 
     private func boundsForNode(_ id: UUID) -> CGRect {
@@ -170,10 +170,10 @@ extension DominoViewModel {
         threshold: CGFloat
     ) -> [SnapCandidate] {
         let expanded = draggedBounds.insetBy(
-            dx: -(threshold + DominoSnapMetrics.proximityPadding),
-            dy: -(threshold + DominoSnapMetrics.proximityPadding)
+            dx: -(threshold + KommitSnapMetrics.proximityPadding),
+            dy: -(threshold + KommitSnapMetrics.proximityPadding)
         )
-        let axisReach = max(draggedBounds.width, draggedBounds.height) + DominoSnapMetrics.proximityPadding
+        let axisReach = max(draggedBounds.width, draggedBounds.height) + KommitSnapMetrics.proximityPadding
         let draggedCenter = CGPoint(x: draggedBounds.midX, y: draggedBounds.midY)
 
         var candidates: [SnapCandidate] = []
@@ -281,7 +281,7 @@ extension DominoViewModel {
                     let leading = byX[leadingIndex]
                     let trailing = byX[trailingIndex]
                 let gap = trailing.bounds.minX - leading.bounds.maxX
-                guard gap > DominoSnapMetrics.epsilon,
+                guard gap > KommitSnapMetrics.epsilon,
                     let crossRange = relaxedOverlapRange(
                         startA: leading.bounds.minY,
                         endA: leading.bounds.maxY,
@@ -328,7 +328,7 @@ extension DominoViewModel {
                     let leading = byY[leadingIndex]
                     let trailing = byY[trailingIndex]
                 let gap = trailing.bounds.minY - leading.bounds.maxY
-                guard gap > DominoSnapMetrics.epsilon,
+                guard gap > KommitSnapMetrics.epsilon,
                     let crossRange = relaxedOverlapRange(
                         startA: leading.bounds.minX,
                         endA: leading.bounds.maxX,
@@ -399,7 +399,7 @@ extension DominoViewModel {
                     targetNodeIDs: [stop.targetNodeID]
                 )
 
-                if bestDelta == nil || distance < bestDistance - DominoSnapMetrics.epsilon {
+                if bestDelta == nil || distance < bestDistance - KommitSnapMetrics.epsilon {
                     bestDelta = delta
                     bestDistance = distance
                     bestStop = stop
@@ -408,19 +408,19 @@ extension DominoViewModel {
                 }
 
                 guard let currentDelta = bestDelta, let currentStop = bestStop else { continue }
-                if abs(distance - bestDistance) > DominoSnapMetrics.epsilon {
+                if abs(distance - bestDistance) > KommitSnapMetrics.epsilon {
                     continue
                 }
 
                 // Same best distance. If delta is effectively identical, keep all equivalent guides.
-                if abs(delta - currentDelta) <= DominoSnapMetrics.epsilon {
+                if abs(delta - currentDelta) <= KommitSnapMetrics.epsilon {
                     mergeGuide(guide, into: &bestGuides)
                     continue
                 }
 
                 // Deterministic tie-break: nearer candidate center, then UUID.
-                if stop.targetDistance < currentStop.targetDistance - DominoSnapMetrics.epsilon
-                    || (abs(stop.targetDistance - currentStop.targetDistance) <= DominoSnapMetrics.epsilon
+                if stop.targetDistance < currentStop.targetDistance - KommitSnapMetrics.epsilon
+                    || (abs(stop.targetDistance - currentStop.targetDistance) <= KommitSnapMetrics.epsilon
                         && stop.targetNodeID.uuidString < currentStop.targetNodeID.uuidString)
                 {
                     bestDelta = delta
@@ -630,8 +630,8 @@ extension DominoViewModel {
                 if shouldPrefer(snap, over: best) {
                     best = snap
                 } else if let current = best,
-                    abs(snap.distance - current.distance) <= DominoSnapMetrics.epsilon,
-                    abs(snap.delta - current.delta) <= DominoSnapMetrics.epsilon
+                    abs(snap.distance - current.distance) <= KommitSnapMetrics.epsilon,
+                    abs(snap.delta - current.delta) <= KommitSnapMetrics.epsilon
                 {
                     var merged = current.guides
                     for guide in snap.guides {
@@ -661,19 +661,19 @@ extension DominoViewModel {
 
     private func shouldPrefer(_ candidate: AxisSnap, over current: AxisSnap?) -> Bool {
         guard let current else { return true }
-        if candidate.distance < current.distance - DominoSnapMetrics.epsilon { return true }
-        if abs(candidate.distance - current.distance) > DominoSnapMetrics.epsilon { return false }
+        if candidate.distance < current.distance - KommitSnapMetrics.epsilon { return true }
+        if abs(candidate.distance - current.distance) > KommitSnapMetrics.epsilon { return false }
 
         if candidate.priority != current.priority {
             return candidate.priority < current.priority
         }
 
-        if abs(candidate.delta - current.delta) <= DominoSnapMetrics.epsilon {
-            return candidate.targetDistance < current.targetDistance - DominoSnapMetrics.epsilon
+        if abs(candidate.delta - current.delta) <= KommitSnapMetrics.epsilon {
+            return candidate.targetDistance < current.targetDistance - KommitSnapMetrics.epsilon
         }
 
-        if candidate.targetDistance < current.targetDistance - DominoSnapMetrics.epsilon { return true }
-        if abs(candidate.targetDistance - current.targetDistance) > DominoSnapMetrics.epsilon { return false }
+        if candidate.targetDistance < current.targetDistance - KommitSnapMetrics.epsilon { return true }
+        if abs(candidate.targetDistance - current.targetDistance) > KommitSnapMetrics.epsilon { return false }
         return candidate.delta < current.delta
     }
 
@@ -684,8 +684,8 @@ extension DominoViewModel {
             if shouldPrefer(snap, over: best) {
                 best = snap
             } else if let current = best,
-                abs(snap.distance - current.distance) <= DominoSnapMetrics.epsilon,
-                abs(snap.delta - current.delta) <= DominoSnapMetrics.epsilon
+                abs(snap.distance - current.distance) <= KommitSnapMetrics.epsilon,
+                abs(snap.delta - current.delta) <= KommitSnapMetrics.epsilon
             {
                 var merged = current.guides
                 for guide in snap.guides {

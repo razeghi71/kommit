@@ -1,16 +1,16 @@
 import AppKit
-import DominoKit
+import KommitKit
 import SwiftUI
 
 @main
-struct DominoApp: App {
+struct KommitApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var viewModel = DominoViewModel()
+    @StateObject private var viewModel = KommitViewModel()
     @AppStorage("showNodeRanks") private var showNodeRanks = true
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        Window("Domino", id: "main") {
+        Window("Kommit", id: "main") {
             ContentView(viewModel: viewModel)
                 .onAppear {
                     appDelegate.viewModel = viewModel
@@ -146,7 +146,7 @@ struct DominoApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unchecked Sendable {
-    var viewModel: DominoViewModel?
+    var viewModel: KommitViewModel?
     var mainWindow: NSWindow?
     var openMainWindowAction: (() -> Void)?
 
@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         }
     }
 
-    func syncMainWindowDocumentTitle(with viewModel: DominoViewModel) {
+    func syncMainWindowDocumentTitle(with viewModel: KommitViewModel) {
         mainWindow?.title = viewModel.documentWindowTitle
     }
 
@@ -170,8 +170,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         guard sender === mainWindow else { return true }
         guard let viewModel else { return true }
         if viewModel.isDirty {
-            guard DominoViewModel.showDiscardConfirmation(
-                informativeText: DominoViewModel.documentDiscardInformativeText
+            guard KommitViewModel.showDiscardConfirmation(
+                informativeText: KommitViewModel.documentDiscardInformativeText
             ) else { return false }
         }
         viewModel.resetToStartHub()
@@ -180,8 +180,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let viewModel, viewModel.isDirty else { return .terminateNow }
-        guard DominoViewModel.showDiscardConfirmation(
-            informativeText: DominoViewModel.documentDiscardInformativeText
+        guard KommitViewModel.showDiscardConfirmation(
+            informativeText: KommitViewModel.documentDiscardInformativeText
         ) else { return .terminateCancel }
         return .terminateNow
     }

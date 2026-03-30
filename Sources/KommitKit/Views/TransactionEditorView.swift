@@ -32,7 +32,7 @@ enum TransactionPlanningLinkKind: String, CaseIterable, Identifiable {
 }
 
 struct TransactionEditorView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     let transaction: FinancialTransaction?
     let defaultMonth: Int
     let defaultYear: Int
@@ -126,7 +126,7 @@ struct TransactionEditorView: View {
             dismiss()
             return
         }
-        if DominoViewModel.showDiscardConfirmation(
+        if KommitViewModel.showDiscardConfirmation(
             messageText: "Discard changes?",
             informativeText: "Your edits to this transaction will be lost."
         ) {

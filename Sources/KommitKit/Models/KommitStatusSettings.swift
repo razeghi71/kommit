@@ -1,13 +1,13 @@
 import Foundation
 
-struct DominoStatusDefinition: Identifiable, Codable, Equatable {
+struct KommitStatusDefinition: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var colorHex: String?
 }
 
-struct DominoStatusSettings: Codable, Equatable {
-    var statusPalette: [DominoStatusDefinition]
+struct KommitStatusSettings: Codable, Equatable {
+    var statusPalette: [KommitStatusDefinition]
 
     static let noneStatusID = UUID(uuidString: "A0000001-0000-4000-8000-000000000000")!
     static let inProgressStatusID = UUID(uuidString: "A0000001-0000-4000-8000-000000000001")!
@@ -22,27 +22,27 @@ struct DominoStatusSettings: Codable, Equatable {
         "14B8A6",
     ]
 
-    init(statusPalette: [DominoStatusDefinition]) {
+    init(statusPalette: [KommitStatusDefinition]) {
         self.statusPalette = Self.sanitizedPalette(statusPalette)
     }
 
-    static var defaultValue: DominoStatusSettings {
-        DominoStatusSettings(statusPalette: [
-            DominoStatusDefinition(id: noneStatusID, name: "None", colorHex: nil),
-            DominoStatusDefinition(id: inProgressStatusID, name: "In Progress", colorHex: "F2D600"),
-            DominoStatusDefinition(id: doneStatusID, name: "Done", colorHex: "61BD4F"),
+    static var defaultValue: KommitStatusSettings {
+        KommitStatusSettings(statusPalette: [
+            KommitStatusDefinition(id: noneStatusID, name: "None", colorHex: nil),
+            KommitStatusDefinition(id: inProgressStatusID, name: "In Progress", colorHex: "F2D600"),
+            KommitStatusDefinition(id: doneStatusID, name: "Done", colorHex: "61BD4F"),
         ])
     }
 
-    var noneStatus: DominoStatusDefinition {
+    var noneStatus: KommitStatusDefinition {
         statusPalette.first(where: { $0.id == Self.noneStatusID }) ?? Self.defaultValue.statusPalette[0]
     }
 
-    var selectableStatuses: [DominoStatusDefinition] {
+    var selectableStatuses: [KommitStatusDefinition] {
         statusPalette.filter { $0.id != Self.noneStatusID }
     }
 
-    func definition(for id: UUID?) -> DominoStatusDefinition {
+    func definition(for id: UUID?) -> KommitStatusDefinition {
         guard let id else { return noneStatus }
         return statusPalette.first(where: { $0.id == id }) ?? noneStatus
     }
@@ -99,8 +99,8 @@ struct DominoStatusSettings: Codable, Equatable {
         }
     }
 
-    private static func sanitizedPalette(_ palette: [DominoStatusDefinition]) -> [DominoStatusDefinition] {
-        var unique: [DominoStatusDefinition] = []
+    private static func sanitizedPalette(_ palette: [KommitStatusDefinition]) -> [KommitStatusDefinition] {
+        var unique: [KommitStatusDefinition] = []
         var seen = Set<UUID>()
 
         let trimmedNoneName =
@@ -109,7 +109,7 @@ struct DominoStatusSettings: Codable, Equatable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         unique.append(
-            DominoStatusDefinition(
+            KommitStatusDefinition(
                 id: noneStatusID,
                 name: trimmedNoneName?.isEmpty == false ? trimmedNoneName! : "None",
                 colorHex: nil
@@ -122,7 +122,7 @@ struct DominoStatusSettings: Codable, Equatable {
             let trimmedName = status.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedColor = normalizedHex(status.colorHex)
             unique.append(
-                DominoStatusDefinition(
+                KommitStatusDefinition(
                     id: status.id,
                     name: trimmedName.isEmpty ? "Untitled Status" : trimmedName,
                     colorHex: normalizedColor.isEmpty ? "0079BF" : normalizedColor
@@ -134,10 +134,10 @@ struct DominoStatusSettings: Codable, Equatable {
     }
 }
 
-struct DominoDocument: Codable {
+struct KommitDocument: Codable {
     var format: Int
-    var nodes: [DominoNode]
-    var settings: DominoStatusSettings?
+    var nodes: [KommitNode]
+    var settings: KommitStatusSettings?
     var commitments: [Commitment]?
     var forecasts: [Forecast]?
     var financialTransactions: [FinancialTransaction]?
@@ -146,8 +146,8 @@ struct DominoDocument: Codable {
 
     init(
         format: Int = 4,
-        nodes: [DominoNode],
-        settings: DominoStatusSettings?,
+        nodes: [KommitNode],
+        settings: KommitStatusSettings?,
         commitments: [Commitment]? = nil,
         forecasts: [Forecast]? = nil,
         financialTransactions: [FinancialTransaction]? = nil,

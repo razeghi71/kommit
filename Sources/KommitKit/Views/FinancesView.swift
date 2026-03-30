@@ -32,7 +32,7 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 // MARK: - Main Finances View
 
 package struct FinancesView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     @State private var selectedTab: FinancesTab = .financialPlanning
 
     package var body: some View {

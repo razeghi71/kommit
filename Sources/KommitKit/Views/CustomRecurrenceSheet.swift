@@ -89,7 +89,7 @@ struct CustomRecurrenceSheet: View {
             onCancel()
             return
         }
-        if DominoViewModel.showDiscardConfirmation(
+        if KommitViewModel.showDiscardConfirmation(
             messageText: "Discard changes?",
             informativeText: "Your custom recurrence settings will be lost."
         ) {

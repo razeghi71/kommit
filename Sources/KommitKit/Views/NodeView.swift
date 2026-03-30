@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 struct NodeView: View {
-    let node: DominoNode
-    @ObservedObject var viewModel: DominoViewModel
+    let node: KommitNode
+    @ObservedObject var viewModel: KommitViewModel
     @AppStorage("showNodeRanks") private var showNodeRanks = true
     @State private var isHovering = false
     @State private var showsPlannedDateTooltip = false
@@ -32,7 +32,7 @@ struct NodeView: View {
         isSelected
     }
 
-    private var status: DominoStatusDefinition {
+    private var status: KommitStatusDefinition {
         viewModel.statusDefinition(for: node.statusID)
     }
 
@@ -113,7 +113,7 @@ struct NodeView: View {
         return image
     }
 
-    private static func statusMenuIcon(for status: DominoStatusDefinition) -> Image {
+    private static func statusMenuIcon(for status: KommitStatusDefinition) -> Image {
         if let hex = status.colorHex {
             return Image(nsImage: colorDot(hex: hex))
         }

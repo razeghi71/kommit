@@ -54,7 +54,7 @@ private struct SegmentedTabs<T: RawRepresentable & CaseIterable & Identifiable &
 }
 
 package struct ContentView: View {
-    @ObservedObject package var viewModel: DominoViewModel
+    @ObservedObject package var viewModel: KommitViewModel
     @Environment(\.openWindow) private var openWindow
     @State private var topTab: TopTab = .tasks
     @State private var isSearchPresented = false
@@ -63,7 +63,7 @@ package struct ContentView: View {
     @State private var lastSearchedQuery = ""
     @FocusState private var searchFieldFocused: Bool
 
-    package init(viewModel: DominoViewModel) {
+    package init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
     }
 
@@ -214,7 +214,7 @@ package struct ContentView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var searchMatches: [DominoNode] {
+    private var searchMatches: [KommitNode] {
         guard !trimmedSearchText.isEmpty else { return [] }
         let matches = viewModel.visibleNodes.filter {
             $0.text.localizedCaseInsensitiveContains(trimmedSearchText)

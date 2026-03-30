@@ -1,7 +1,7 @@
 import SwiftUI
 
 package struct FinanceCalendarView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
 
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
     @State private var forecastQuickLogPayload: FinanceCalendarForecastQuickLogPayload?
@@ -17,7 +17,7 @@ package struct FinanceCalendarView: View {
     /// Cap history so we do not build tens of thousands of day columns or scan decades of months.
     private let calendarLookbackDays = 548
 
-    package init(viewModel: DominoViewModel) {
+    package init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
     }
 

@@ -25,7 +25,7 @@ struct CommitmentDraftBaseline: Equatable {
 // MARK: - Commitment editor
 
 struct CommitmentEditorView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     let commitment: Commitment?
 
     @Environment(\.dismiss) private var dismiss
@@ -132,7 +132,7 @@ struct CommitmentEditorView: View {
             dismiss()
             return
         }
-        if DominoViewModel.showDiscardConfirmation(
+        if KommitViewModel.showDiscardConfirmation(
             messageText: "Discard changes?",
             informativeText: "Your edits to this commitment will be lost."
         ) {

@@ -3,11 +3,11 @@ import SwiftUI
 // MARK: - Finance Summary View
 
 struct FinanceSummaryView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     @State private var filterMonth: Int
     @State private var filterYear: Int
 
-    init(viewModel: DominoViewModel) {
+    init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
         let comps = Calendar.current.dateComponents([.year, .month], from: Date())
         _filterMonth = State(initialValue: comps.month ?? 1)

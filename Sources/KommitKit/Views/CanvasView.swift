@@ -14,7 +14,7 @@ private enum SelectionMarqueeAutoScroll {
 }
 
 struct CanvasView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
 
     @State private var panOffset: CGSize = .zero
     @State private var scale: CGFloat = 1.0
@@ -589,7 +589,7 @@ struct CanvasView: View {
 
     /// Clips alignment guides to the span of targets + current selection so the line reads as a fixed “rail”
     /// between those nodes instead of an infinite canvas-wide stroke that tracks the eye with the drag.
-    private func alignmentGuideLinePath(guide: SnapGuide, position: CGFloat, viewModel: DominoViewModel) -> Path {
+    private func alignmentGuideLinePath(guide: SnapGuide, position: CGFloat, viewModel: KommitViewModel) -> Path {
         let margin: CGFloat = 48
         var relevantIDs = Set(guide.targetNodeIDs)
         relevantIDs.formUnion(viewModel.selectedNodeIDs)

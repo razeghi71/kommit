@@ -26,23 +26,23 @@ jobs:
 
       - name: Create DMG
         run: |
-          hdiutil create -volname "Domino" \
-            -srcfolder build/Domino.app \
+          hdiutil create -volname "Kommit" \
+            -srcfolder build/Kommit.app \
             -ov -format UDZO \
-            build/Domino-${{ steps.version.outputs.VERSION }}.dmg
+            build/Kommit-${{ steps.version.outputs.VERSION }}.dmg
 
       - name: Create ZIP
         working-directory: build
         run: |
-          zip -r Domino-${{ steps.version.outputs.VERSION }}.zip Domino.app
-          cp Domino-${{ steps.version.outputs.VERSION }}.zip Domino.zip
+          zip -r Kommit-${{ steps.version.outputs.VERSION }}.zip Kommit.app
+          cp Kommit-${{ steps.version.outputs.VERSION }}.zip Kommit.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Domino ${{ steps.version.outputs.VERSION }}
+          name: Kommit ${{ steps.version.outputs.VERSION }}
           generate_release_notes: true
           files: |
-            build/Domino-${{ steps.version.outputs.VERSION }}.dmg
-            build/Domino-${{ steps.version.outputs.VERSION }}.zip
-            build/Domino.zip
+            build/Kommit-${{ steps.version.outputs.VERSION }}.dmg
+            build/Kommit-${{ steps.version.outputs.VERSION }}.zip
+            build/Kommit.zip

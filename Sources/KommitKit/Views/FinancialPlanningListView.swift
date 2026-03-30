@@ -4,14 +4,14 @@ import SwiftUI
 
 enum FinancialPlanningUserDefaultsKey {
     /// When true (default), commitments that are fully paid and in the past are hidden from the planning list.
-    static let hideFullyPaidCommitments = "domino.financialPlanning.hideFullyPaidCommitments"
+    static let hideFullyPaidCommitments = "kommit.financialPlanning.hideFullyPaidCommitments"
 }
 
 struct FinancialPlanningListView: View {
     /// Minimum width to show commitments and forecasts in two columns.
     private static let sideBySideBreakpoint: CGFloat = 960
 
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     @AppStorage(FinancialPlanningUserDefaultsKey.hideFullyPaidCommitments) private var hideFullyPaidCommitments = true
     @State private var showingAddCommitment = false
     @State private var showingAddForecast = false

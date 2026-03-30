@@ -11,7 +11,7 @@ extension Commitment: FinancialOccurrenceSource {}
 extension Forecast: FinancialOccurrenceSource {}
 
 @MainActor
-extension DominoViewModel {
+extension KommitViewModel {
     // MARK: - Finances CRUD
 
     package func addCommitment(_ commitment: Commitment) {

@@ -3,13 +3,13 @@ import SwiftUI
 // MARK: - Transactions List
 
 struct TransactionsListView: View {
-    @ObservedObject var viewModel: DominoViewModel
+    @ObservedObject var viewModel: KommitViewModel
     @State private var showingAddTransaction = false
     @State private var filterMonth: Int
     @State private var filterYear: Int
     @State private var editingTransaction: FinancialTransaction?
 
-    init(viewModel: DominoViewModel) {
+    init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
         let now = Date()
         let comps = Calendar.current.dateComponents([.year, .month], from: now)
