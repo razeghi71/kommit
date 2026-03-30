@@ -5,6 +5,7 @@ package struct FinanceCalendarView: View {
 
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
     @State private var forecastQuickLogPayload: FinanceCalendarForecastQuickLogPayload?
+    @State private var editingCalendarTransaction: FinancialTransaction?
     @State private var didInitialScrollToToday = false
 
     private let horizonDays = 150
@@ -47,6 +48,14 @@ package struct FinanceCalendarView: View {
                 defaultYear: comps.year ?? 2026,
                 prefilledForecastID: payload.forecast.id,
                 prefilledPaymentDate: payload.occurrenceDate
+            )
+        }
+        .sheet(item: $editingCalendarTransaction) { txn in
+            TransactionEditorView(
+                viewModel: viewModel,
+                transaction: txn,
+                defaultMonth: Calendar.current.component(.month, from: txn.date),
+                defaultYear: Calendar.current.component(.year, from: txn.date)
             )
         }
     }
@@ -104,6 +113,20 @@ package struct FinanceCalendarView: View {
     private static func commitmentOccurrenceKey(commitmentID: UUID, dueDate: Date, calendar cal: Calendar) -> String {
         let day = cal.startOfDay(for: dueDate)
         return "\(commitmentID.uuidString)|\(day.timeIntervalSinceReferenceDate)"
+    }
+
+    private func financialTransactionForPaidCommitmentLine(_ line: FinanceCalendarDueLine) -> FinancialTransaction? {
+        guard line.isPaid else { return nil }
+        let cal = calendar
+        let target = Self.commitmentOccurrenceKey(
+            commitmentID: line.commitment.id,
+            dueDate: line.occurrenceDueDate,
+            calendar: cal
+        )
+        return viewModel.financialTransactions.values.first { txn in
+            guard let cid = txn.commitmentID, let due = txn.dueDate else { return false }
+            return Self.commitmentOccurrenceKey(commitmentID: cid, dueDate: due, calendar: cal) == target
+        }
     }
 
     private func header(onScrollToToday: @escaping () -> Void) -> some View {
@@ -320,6 +343,7 @@ package struct FinanceCalendarView: View {
         }
     }
 
+    @ViewBuilder
     private func transactionEventBlock(_ line: FinanceCalendarDueLine, displayDayStart: Date, todayStart: Date) -> some View {
         let cal = calendar
         let isOverdueRollupStriped = line.isRollupOnToday
@@ -330,7 +354,7 @@ package struct FinanceCalendarView: View {
         let commitment = line.commitment
         let trailingPadding: CGFloat = line.isPaid ? 10 : 30
 
-        return ZStack(alignment: .topTrailing) {
+        let card = ZStack(alignment: .topTrailing) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(colors.fill)
@@ -380,6 +404,17 @@ package struct FinanceCalendarView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+        }
+
+        if line.isPaid, let txn = financialTransactionForPaidCommitmentLine(line) {
+            Button {
+                editingCalendarTransaction = txn
+            } label: {
+                card
+            }
+            .buttonStyle(.plain)
+        } else {
+            card
         }
     }
 
@@ -438,6 +473,7 @@ package struct FinanceCalendarView: View {
     }
 
     /// Forecast-linked recorded txn: full card using the **transaction** amount (one row per recorded txn).
+    @ViewBuilder
     private func forecastRealizedEventBlock(_ line: FinanceCalendarForecastRealizedLine, displayDayStart _: Date) -> some View {
         let txn = line.transaction
         let isIncome = txn.type == .income
@@ -450,7 +486,7 @@ package struct FinanceCalendarView: View {
         let accent = Self.forecastRealizedAccent
         let fill = accent.opacity(0.14)
 
-        return HStack(alignment: .top, spacing: 0) {
+        let card = HStack(alignment: .top, spacing: 0) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(accent.opacity(0.92))
                 .frame(width: 5)
@@ -485,6 +521,13 @@ package struct FinanceCalendarView: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(accent.opacity(0.28), lineWidth: 0.5)
         }
+
+        Button {
+            editingCalendarTransaction = txn
+        } label: {
+            card
+        }
+        .buttonStyle(.plain)
     }
 
     private func recordCommitmentOccurrence(commitment: Commitment, dueDate: Date, recordedOn: Date) {
