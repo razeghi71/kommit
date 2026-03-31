@@ -8,8 +8,6 @@ Opinionated Mac app for planning your life.
 
 [![Download](https://img.shields.io/badge/Download-Latest%20Release-blue?style=for-the-badge)](https://github.com/razeghi71/kommit/releases/latest/download/Kommit.zip)
 
-![Screenshot](screenshot.png)
-
 </div>
 
 ## Overview
