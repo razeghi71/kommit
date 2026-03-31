@@ -143,11 +143,16 @@ package struct SettingsView: View {
                         confirmRevertToSystemDefaults()
                     }
                 }
-            } else {
+            } else if viewModel.hasOpenBoardContext {
                 Button("Customize for This Board") {
                     viewModel.addFileStatusSettings()
                     editorScope = .file
                 }
+            } else {
+                Text("Open or create a board to add board-specific status overrides.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -210,6 +215,9 @@ package struct SettingsView: View {
     }
 
     private var statusSourceTitle: String {
+        if !viewModel.hasOpenBoardContext {
+            return "Editing the system defaults"
+        }
         switch viewModel.effectiveStatusSettingsScope {
         case .file:
             return "This board is using custom statuses"
@@ -219,6 +227,9 @@ package struct SettingsView: View {
     }
 
     private var statusSourceDescription: String {
+        if !viewModel.hasOpenBoardContext {
+            return "Open or create a board to customize statuses for just that board."
+        }
         switch viewModel.effectiveStatusSettingsScope {
         case .file:
             return "Changes to the current board are saved in \(boardFileDescription)."
@@ -232,7 +243,7 @@ package struct SettingsView: View {
         case .file:
             return "Statuses for This Board"
         case .system:
-            if viewModel.hasFileStatusSettings {
+            if viewModel.hasFileStatusSettings || !viewModel.hasOpenBoardContext {
                 return "System Default Statuses"
             }
             return "Statuses"
@@ -244,6 +255,9 @@ package struct SettingsView: View {
         case .file:
             return "Only this board uses these statuses."
         case .system:
+            if !viewModel.hasOpenBoardContext {
+                return "These are the shared defaults used by boards without custom statuses."
+            }
             if viewModel.hasFileStatusSettings {
                 return "These are the shared defaults used by boards without custom statuses."
             }

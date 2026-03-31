@@ -78,6 +78,7 @@ package final class KommitViewModel: ObservableObject {
     var activeStatusSettings: KommitStatusSettings { fileStatusSettings ?? systemStatusSettings }
     var effectiveStatusSettingsScope: StatusSettingsScope { hasFileStatusSettings ? .file : .system }
     var hasFileStatusSettings: Bool { fileStatusSettings != nil }
+    package var hasOpenBoardContext: Bool { !shouldShowStartHub }
 
     /// Set from the main SwiftUI window (`ContentView`). Used where `EnvironmentValues.openWindow` is unavailable.
     var openSettingsWindowAction: (() -> Void)?
@@ -471,7 +472,7 @@ package final class KommitViewModel: ObservableObject {
     }
 
     func addFileStatusSettings() {
-        guard fileStatusSettings == nil else { return }
+        guard hasOpenBoardContext, fileStatusSettings == nil else { return }
         fileStatusSettings = systemStatusSettings
         clearInvalidNodeStatusesForActiveSettings()
         isDirty = true
