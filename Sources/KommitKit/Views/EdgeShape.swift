@@ -4,11 +4,19 @@ enum BorderSide {
     case top, bottom, left, right
 }
 
+enum EdgeTargetMode {
+    /// `to` represents a node center and `toSize` should be provided so the arrow can snap to the node border.
+    case nodeCenter
+    /// `to` represents the arrow tip point (e.g. the pointer) and should not be offset by any node size.
+    case pointTip
+}
+
 struct EdgeShape: View {
     var from: CGPoint
     var to: CGPoint
     var fromSize: CGSize = NodeDefaults.size
     var toSize: CGSize = NodeDefaults.size
+    var targetMode: EdgeTargetMode = .nodeCenter
     var color: Color = .secondary
     var dash: [CGFloat]? = nil
     var isSelected: Bool = false
@@ -20,7 +28,12 @@ struct EdgeShape: View {
     private let padding: CGFloat = 8
 
     private var curvePoints: CurvePoints? {
-        Self.computeCurve(from: from, to: to, fromSize: fromSize, toSize: toSize, cpDistance: cpDistance, arrowLength: arrowLength)
+        switch targetMode {
+        case .nodeCenter:
+            return Self.computeCurve(from: from, to: to, fromSize: fromSize, toSize: toSize, cpDistance: cpDistance, arrowLength: arrowLength)
+        case .pointTip:
+            return Self.computeCurveToTip(from: from, tip: to, fromSize: fromSize, cpDistance: cpDistance, arrowLength: arrowLength)
+        }
     }
 
     private func arrowWingPoints(tip: CGPoint, dir: CGFloat) -> (left: CGPoint, right: CGPoint) {
@@ -159,6 +172,41 @@ struct EdgeShape: View {
         let arrowBase = CGPoint(
             x: tip.x - arrowLength * cos(arrowDir),
             y: tip.y - arrowLength * sin(arrowDir)
+        )
+
+        return CurvePoints(sourceExit: sourceExit, tip: tip, arrowBase: arrowBase, cp1: cp1, cp2: cp2, arrowDir: arrowDir)
+    }
+
+    static func computeCurveToTip(from: CGPoint, tip: CGPoint, fromSize: CGSize, cpDistance: CGFloat, arrowLength: CGFloat) -> CurvePoints? {
+        let dx = tip.x - from.x
+        let dy = tip.y - from.y
+        guard dx != 0 || dy != 0 else { return nil }
+
+        let angle = atan2(dy, dx)
+        let sourceSide = sideFromAngle(angle)
+
+        let fromHalfW = fromSize.width / 2
+        let fromHalfH = fromSize.height / 2
+        let sourceExit = borderPointForSide(center: from, side: sourceSide, halfW: fromHalfW, halfH: fromHalfH)
+
+        // Arrow points in the direction of travel (source -> tip)
+        let arrowDir = angle
+        let ux = cos(arrowDir)
+        let uy = sin(arrowDir)
+
+        let arrowBase = CGPoint(
+            x: tip.x - arrowLength * ux,
+            y: tip.y - arrowLength * uy
+        )
+
+        // Smooth-ish cubic: tangents aligned with drag direction.
+        let cp1 = CGPoint(
+            x: sourceExit.x + cpDistance * ux,
+            y: sourceExit.y + cpDistance * uy
+        )
+        let cp2 = CGPoint(
+            x: arrowBase.x - cpDistance * ux,
+            y: arrowBase.y - cpDistance * uy
         )
 
         return CurvePoints(sourceExit: sourceExit, tip: tip, arrowBase: arrowBase, cp1: cp1, cp2: cp2, arrowDir: arrowDir)

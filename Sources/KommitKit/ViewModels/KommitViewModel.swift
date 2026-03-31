@@ -244,7 +244,22 @@ package final class KommitViewModel: ObservableObject {
         let offset: CGFloat = 180
         let position: CGPoint
         if let dropPoint {
-            position = dropPoint
+            let halfW = NodeDefaults.size.width / 2
+            let halfH = NodeDefaults.size.height / 2
+            switch direction {
+            case .top:
+                // Pointer indicates the new node's bottom edge.
+                position = CGPoint(x: dropPoint.x, y: dropPoint.y - halfH)
+            case .bottom:
+                // Pointer indicates the new node's top edge.
+                position = CGPoint(x: dropPoint.x, y: dropPoint.y + halfH)
+            case .left:
+                // Pointer indicates the new node's right edge.
+                position = CGPoint(x: dropPoint.x - halfW, y: dropPoint.y)
+            case .right:
+                // Pointer indicates the new node's left edge.
+                position = CGPoint(x: dropPoint.x + halfW, y: dropPoint.y)
+            }
         } else {
             switch direction {
             case .top: position = CGPoint(x: parent.position.x, y: parent.position.y - offset)

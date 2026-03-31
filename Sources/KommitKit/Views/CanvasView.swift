@@ -165,6 +165,7 @@ struct CanvasView: View {
                             from: viewModel.effectivePosition(drag.sourceNodeID),
                             to: drag.currentPoint,
                             fromSize: viewModel.nodeSizes[drag.sourceNodeID] ?? NodeDefaults.size,
+                            targetMode: .pointTip,
                             color: .accentColor.opacity(0.5),
                             dash: [6, 4]
                         )
