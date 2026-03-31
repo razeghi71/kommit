@@ -14,8 +14,8 @@ generate_app_icon() {
         exit 1
     fi
 
-    if ! command -v sips >/dev/null 2>&1; then
-        echo "Error: sips is required to render $ICON_SVG"
+    if ! command -v rsvg-convert >/dev/null 2>&1; then
+        echo "Error: rsvg-convert is required (brew install librsvg)"
         exit 1
     fi
 
@@ -33,8 +33,7 @@ generate_app_icon() {
         local size="$1"
         local out_name="$2"
         local out_path="$iconset_dir/$out_name"
-        sips -s format png "$ICON_SVG" --out "$out_path" >/dev/null
-        sips -z "$size" "$size" "$out_path" >/dev/null
+        rsvg-convert -w "$size" -h "$size" "$ICON_SVG" -o "$out_path"
     }
 
     echo "Generating $ICON_ICNS from $ICON_SVG..."
