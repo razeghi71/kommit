@@ -3,6 +3,27 @@ import SwiftUI
 
 @MainActor
 package final class KommitViewModel: ObservableObject {
+    enum StatusSettingsScope: String, CaseIterable, Identifiable {
+        case file
+        case system
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .file: "Current Board"
+            case .system: "System Defaults"
+            }
+        }
+    }
+
+    struct StatusSettingsImpact {
+        let affectedNodeCount: Int
+        let sampleNodeNames: [String]
+
+        static let none = StatusSettingsImpact(affectedNodeCount: 0, sampleNodeNames: [])
+    }
+
     @Published var nodes: [UUID: KommitNode] = [:]
     @Published var systemStatusSettings: KommitStatusSettings
     @Published var fileStatusSettings: KommitStatusSettings?
@@ -55,6 +76,7 @@ package final class KommitViewModel: ObservableObject {
     package var canUndo: Bool { !undoStack.isEmpty }
     package var canRedo: Bool { !redoStack.isEmpty }
     var activeStatusSettings: KommitStatusSettings { fileStatusSettings ?? systemStatusSettings }
+    var effectiveStatusSettingsScope: StatusSettingsScope { hasFileStatusSettings ? .file : .system }
     var hasFileStatusSettings: Bool { fileStatusSettings != nil }
 
     /// Set from the main SwiftUI window (`ContentView`). Used where `EnvironmentValues.openWindow` is unavailable.
@@ -462,6 +484,71 @@ package final class KommitViewModel: ObservableObject {
         isDirty = true
     }
 
+    func statusSettings(for scope: StatusSettingsScope) -> KommitStatusSettings? {
+        switch scope {
+        case .file:
+            fileStatusSettings
+        case .system:
+            systemStatusSettings
+        }
+    }
+
+    func resolvedStatusSettings(for scope: StatusSettingsScope) -> KommitStatusSettings {
+        switch scope {
+        case .file:
+            fileStatusSettings ?? systemStatusSettings
+        case .system:
+            systemStatusSettings
+        }
+    }
+
+    func addStatus(in scope: StatusSettingsScope) {
+        addStatus(forFileSettings: scope == .file)
+    }
+
+    func updateStatusName(_ id: UUID, name: String, in scope: StatusSettingsScope) {
+        updateStatusName(id, name: name, forFileSettings: scope == .file)
+    }
+
+    func updateStatusColor(_ id: UUID, colorHex: String, in scope: StatusSettingsScope) {
+        updateStatusColor(id, colorHex: colorHex, forFileSettings: scope == .file)
+    }
+
+    func removeStatus(_ id: UUID, from scope: StatusSettingsScope) {
+        removeStatus(id, forFileSettings: scope == .file)
+    }
+
+    func nodeCount(usingStatus id: UUID, in scope: StatusSettingsScope) -> Int {
+        guard scope == effectiveStatusSettingsScope else { return 0 }
+        return nodes.values.reduce(into: 0) { partialResult, node in
+            if node.statusID == id {
+                partialResult += 1
+            }
+        }
+    }
+
+    func removalImpact(forStatus id: UUID, from scope: StatusSettingsScope, sampleLimit: Int = 3) -> StatusSettingsImpact {
+        guard scope == effectiveStatusSettingsScope else { return .none }
+        let affectedNodes = nodes.values.filter { $0.statusID == id }
+        return StatusSettingsImpact(
+            affectedNodeCount: affectedNodes.count,
+            sampleNodeNames: Array(affectedNodes.prefix(sampleLimit).map(Self.displayName(for:)))
+        )
+    }
+
+    func revertToSystemDefaultsImpact(sampleLimit: Int = 3) -> StatusSettingsImpact {
+        guard fileStatusSettings != nil else { return .none }
+        let validIDs = Set(systemStatusSettings.statusPalette.map(\.id))
+        let affectedNodes = nodes.values.filter { node in
+            guard let statusID = node.statusID else { return false }
+            return !validIDs.contains(statusID) || statusID == KommitStatusSettings.noneStatusID
+        }
+        return StatusSettingsImpact(
+            affectedNodeCount: affectedNodes.count,
+            sampleNodeNames: Array(affectedNodes.prefix(sampleLimit).map(Self.displayName(for:)))
+        )
+    }
+
     func addStatus(forFileSettings: Bool) {
         mutateStatusSettings(forFileSettings: forFileSettings) { settings in
             settings.statusPalette.append(
@@ -548,6 +635,11 @@ package final class KommitViewModel: ObservableObject {
     private func persistSystemStatusSettings() {
         guard let data = try? JSONEncoder().encode(systemStatusSettings) else { return }
         userDefaults.set(data, forKey: systemStatusSettingsKey)
+    }
+
+    private static func displayName(for node: KommitNode) -> String {
+        let trimmed = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled Task" : trimmed
     }
 
 

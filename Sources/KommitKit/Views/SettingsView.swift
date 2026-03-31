@@ -26,9 +26,18 @@ package struct SettingsView: View {
     @ObservedObject package var viewModel: KommitViewModel
     @AppStorage(FinancialPlanningUserDefaultsKey.hideFullyPaidCommitments) private var hideFullyPaidCommitments = true
     @State private var selectedSection: SettingsSidebarSection = .tasks
+    @State private var editorScope: KommitViewModel.StatusSettingsScope = .system
 
     package init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
+    }
+
+    private var currentEditorScope: KommitViewModel.StatusSettingsScope {
+        viewModel.hasFileStatusSettings ? editorScope : .system
+    }
+
+    private var currentEditorSettings: KommitStatusSettings {
+        viewModel.resolvedStatusSettings(for: currentEditorScope)
     }
 
     package var body: some View {
@@ -56,8 +65,12 @@ package struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 640, minHeight: 440)
+        .frame(minWidth: 720, minHeight: 520)
         .background(AppColors.canvasBackgroundSwiftUI)
+        .onAppear(perform: syncEditorScopeWithModel)
+        .onChange(of: viewModel.fileLoadID) { _, _ in
+            syncEditorScopeWithModel()
+        }
     }
 
     private func sidebarButton(_ section: SettingsSidebarSection) -> some View {
@@ -88,56 +101,86 @@ package struct SettingsView: View {
 
     private var tasksManagementPane: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Tasks")
-                    .font(.title2.weight(.semibold))
-
-                GroupBox("System-Level Settings") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("These statuses are used by default across boards unless a file adds its own override.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        StatusSettingsEditor(
-                            statuses: viewModel.systemStatusSettings.statusPalette,
-                            forFileSettings: false,
-                            viewModel: viewModel
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Tasks")
+                        .font(.title2.weight(.semibold))
+                    Text("This board uses one status palette at a time.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                GroupBox("File-Level Settings") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let fileSettings = viewModel.fileStatusSettings {
-                            Text(fileSettingsDescription)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-
-                            StatusSettingsEditor(
-                                statuses: fileSettings.statusPalette,
-                                forFileSettings: true,
-                                viewModel: viewModel
-                            )
-
-                            Button("Remove File-Level Settings", role: .destructive) {
-                                viewModel.removeFileStatusSettings()
-                            }
-                        } else {
-                            Text("Start from the current system settings, then change them just for this board. File-level settings are written into the JSON document.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-
-                            Button("Add File-Level Settings") {
-                                viewModel.addFileStatusSettings()
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                tasksHeader
+                statusEditorSection(for: currentEditorScope)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var tasksHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(statusSourceTitle)
+                    .font(.headline)
+                Text(statusSourceDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if viewModel.hasFileStatusSettings {
+                HStack(spacing: 12) {
+                    Picker("Editing", selection: $editorScope) {
+                        Text("Current Board").tag(KommitViewModel.StatusSettingsScope.file)
+                        Text("System Defaults").tag(KommitViewModel.StatusSettingsScope.system)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 320)
+
+                    Button("Use System Defaults", role: .destructive) {
+                        confirmRevertToSystemDefaults()
+                    }
+                }
+            } else {
+                Button("Customize for This Board") {
+                    viewModel.addFileStatusSettings()
+                    editorScope = .file
+                }
+            }
+        }
+    }
+
+    private func statusEditorSection(for scope: KommitViewModel.StatusSettingsScope) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(editorSectionTitle(for: scope))
+                .font(.headline)
+
+            Text(editorSectionDescription(for: scope))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            StatusSettingsEditor(
+                statuses: currentEditorSettings.statusPalette,
+                scope: scope,
+                viewModel: viewModel,
+                onRemoveStatus: { status in
+                    confirmRemovingStatus(status, from: scope)
+                }
+            )
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+
+            if scope == .system && viewModel.hasFileStatusSettings {
+                Text("You are editing the shared defaults. This board keeps using its own custom palette until you switch it back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -166,31 +209,140 @@ package struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var fileSettingsDescription: String {
-        if let currentFileURL = viewModel.currentFileURL {
-            return "These statuses apply only to `\(currentFileURL.lastPathComponent)` and are saved inside that JSON file."
+    private var statusSourceTitle: String {
+        switch viewModel.effectiveStatusSettingsScope {
+        case .file:
+            return "This board is using custom statuses"
+        case .system:
+            return "This board is using the system defaults"
         }
-        return "These statuses apply only to the current board and will be saved into the JSON file when you save it."
     }
+
+    private var statusSourceDescription: String {
+        switch viewModel.effectiveStatusSettingsScope {
+        case .file:
+            return "Changes to the current board are saved in \(boardFileDescription)."
+        case .system:
+            return "Changes here affect every board that has not been customized."
+        }
+    }
+
+    private func editorSectionTitle(for scope: KommitViewModel.StatusSettingsScope) -> String {
+        switch scope {
+        case .file:
+            return "Statuses for This Board"
+        case .system:
+            if viewModel.hasFileStatusSettings {
+                return "System Default Statuses"
+            }
+            return "Statuses"
+        }
+    }
+
+    private func editorSectionDescription(for scope: KommitViewModel.StatusSettingsScope) -> String {
+        switch scope {
+        case .file:
+            return "Only this board uses these statuses."
+        case .system:
+            if viewModel.hasFileStatusSettings {
+                return "These are the shared defaults used by boards without custom statuses."
+            }
+            return "These are the statuses currently used by this board."
+        }
+    }
+
+    private func syncEditorScopeWithModel() {
+        editorScope = viewModel.hasFileStatusSettings ? .file : .system
+    }
+
+    private var boardFileDescription: String {
+        if let currentFileURL = viewModel.currentFileURL {
+            return currentFileURL.lastPathComponent
+        }
+        return "this board"
+    }
+
+    private func confirmRemovingStatus(_ status: KommitStatusDefinition, from scope: KommitViewModel.StatusSettingsScope) {
+        let alert = NSAlert()
+        alert.messageText = "Delete \"\(status.name)\"?"
+        alert.informativeText = removeStatusMessage(for: status, from: scope)
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        viewModel.removeStatus(status.id, from: scope)
+    }
+
+    private func confirmRevertToSystemDefaults() {
+        let alert = NSAlert()
+        alert.messageText = "Revert to System Defaults?"
+        alert.informativeText = revertToSystemDefaultsMessage()
+        alert.addButton(withTitle: "Revert")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        viewModel.removeFileStatusSettings()
+        editorScope = .system
+    }
+
+    private func removeStatusMessage(for status: KommitStatusDefinition, from scope: KommitViewModel.StatusSettingsScope) -> String {
+        let impact = viewModel.removalImpact(forStatus: status.id, from: scope)
+        if impact.affectedNodeCount > 0 {
+            return "\(impact.affectedNodeCount) task\(impact.affectedNodeCount == 1 ? "" : "s") on this board currently use this status. Deleting it will clear their status assignment.\(sampleTaskSuffix(for: impact))"
+        }
+
+        switch scope {
+        case .file:
+            return "This status will be removed from the current board override saved in \(boardFileDescription)."
+        case .system:
+            if viewModel.hasFileStatusSettings {
+                return "This board will keep using its board-specific palette, but boards that rely on system defaults will no longer have this status."
+            }
+            return "Boards that rely on system defaults, including this board, will no longer have this status."
+        }
+    }
+
+    private func revertToSystemDefaultsMessage() -> String {
+        let impact = viewModel.revertToSystemDefaultsImpact()
+        if impact.affectedNodeCount > 0 {
+            return "\(impact.affectedNodeCount) task\(impact.affectedNodeCount == 1 ? "" : "s") on this board use statuses that exist only in the board override. Reverting will switch back to the shared system defaults and clear those assignments.\(sampleTaskSuffix(for: impact))"
+        }
+        return "This removes the board-specific palette from \(boardFileDescription) and switches the board back to the shared system defaults."
+    }
+
+    private func sampleTaskSuffix(for impact: KommitViewModel.StatusSettingsImpact) -> String {
+        guard !impact.sampleNodeNames.isEmpty else { return "" }
+        let examples = impact.sampleNodeNames.joined(separator: ", ")
+        let remainder = impact.affectedNodeCount - impact.sampleNodeNames.count
+        if remainder > 0 {
+            return "\n\nExamples: \(examples), and \(remainder) more."
+        }
+        return "\n\nExamples: \(examples)."
+    }
+
 }
 
 private struct StatusSettingsEditor: View {
     let statuses: [KommitStatusDefinition]
-    let forFileSettings: Bool
+    let scope: KommitViewModel.StatusSettingsScope
     @ObservedObject var viewModel: KommitViewModel
+    let onRemoveStatus: (KommitStatusDefinition) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(statuses) { status in
                 StatusRow(
                     status: status,
-                    forFileSettings: forFileSettings,
-                    viewModel: viewModel
+                    scope: scope,
+                    viewModel: viewModel,
+                    onRemoveStatus: onRemoveStatus
                 )
             }
 
             Button("Add Status") {
-                viewModel.addStatus(forFileSettings: forFileSettings)
+                viewModel.addStatus(in: scope)
             }
         }
     }
@@ -198,8 +350,9 @@ private struct StatusSettingsEditor: View {
 
 private struct StatusRow: View {
     let status: KommitStatusDefinition
-    let forFileSettings: Bool
+    let scope: KommitViewModel.StatusSettingsScope
     @ObservedObject var viewModel: KommitViewModel
+    let onRemoveStatus: (KommitStatusDefinition) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -207,7 +360,7 @@ private struct StatusRow: View {
                 "Status name",
                 text: Binding(
                     get: { status.name },
-                    set: { viewModel.updateStatusName(status.id, name: $0, forFileSettings: forFileSettings) }
+                    set: { viewModel.updateStatusName(status.id, name: $0, in: scope) }
                 )
             )
             .textFieldStyle(.roundedBorder)
@@ -221,7 +374,7 @@ private struct StatusRow: View {
                     "",
                     selection: Binding(
                         get: { Color(hex: status.colorHex ?? "0079BF") },
-                        set: { viewModel.updateStatusColor(status.id, colorHex: $0.toHex(), forFileSettings: forFileSettings) }
+                        set: { viewModel.updateStatusColor(status.id, colorHex: $0.toHex(), in: scope) }
                     ),
                     supportsOpacity: false
                 )
@@ -231,14 +384,14 @@ private struct StatusRow: View {
                 Text("#\(status.colorHex ?? "0079BF")")
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .frame(width: 86, alignment: .leading)
+                    .frame(width: 90, alignment: .leading)
             }
 
             Spacer(minLength: 0)
 
             if viewModel.canRemoveStatus(status.id) {
                 Button(role: .destructive) {
-                    viewModel.removeStatus(status.id, forFileSettings: forFileSettings)
+                    onRemoveStatus(status)
                 } label: {
                     Image(systemName: "trash")
                 }

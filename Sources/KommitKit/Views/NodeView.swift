@@ -176,7 +176,7 @@ struct NodeView: View {
                         Button {
                             viewModel.openSettingsWindow()
                         } label: {
-                            Label("Customized Statuses...", systemImage: "gearshape")
+                            Label("Edit Status Palette...", systemImage: "gearshape")
                         }
                     } label: {
                         Label("Set Status", systemImage: "flag")
