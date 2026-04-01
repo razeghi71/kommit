@@ -110,6 +110,18 @@ package struct FinanceCalendarView: View {
             commitmentAmount: { id, due in
                 viewModel.expectedCommitmentAmount(for: id, dueDate: due, calendar: cal)
             },
+            paidSettlementAmount: { id, due in
+                let key = Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal)
+                return viewModel.financialTransactions.values.first { txn in
+                    guard txn.isSettlement, let settles = txn.settles else { return false }
+                    let txnKey = Self.commitmentOccurrenceKey(
+                        commitmentID: settles.commitmentID,
+                        dueDate: settles.dueDate,
+                        calendar: cal
+                    )
+                    return txnKey == key
+                }?.amount
+            },
             recordedTransactionAmount: { txn in
                 viewModel.resolvedTransactionAmount(txn)
             },

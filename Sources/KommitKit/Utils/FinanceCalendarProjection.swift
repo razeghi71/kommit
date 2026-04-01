@@ -106,6 +106,8 @@ package enum FinanceCalendarProjection {
         forecastsByID: [UUID: Forecast],
         commitmentsByID: [UUID: Commitment],
         commitmentAmount: (UUID, Date) -> Double,
+        /// When a commitment occurrence is paid, use the settlement transaction amount for display (falls back to `commitmentAmount` when nil).
+        paidSettlementAmount: (UUID, Date) -> Double?,
         recordedTransactionAmount: (FinancialTransaction) -> Double,
         isPaid: (UUID, Date) -> Bool,
         paidRecordedOn: (UUID, Date) -> Date?,
@@ -139,15 +141,18 @@ package enum FinanceCalendarProjection {
 
         for (commitment, dueDate) in allCommitments {
             let dueDay = calendar.startOfDay(for: dueDate)
-            let amount = commitmentAmount(commitment.id, dueDate)
+            let occurrenceAmount = commitmentAmount(commitment.id, dueDate)
             let paid = isPaid(commitment.id, dueDate)
             let recorded = paid ? paidRecordedOn(commitment.id, dueDate) : nil
+            let lineDisplayAmount = paid
+                ? (paidSettlementAmount(commitment.id, dueDate) ?? occurrenceAmount)
+                : occurrenceAmount
 
             // Unpaid past-due: only on today's column, not on the historical due date.
             if !paid, dueDay < todayStart, dueDay >= windowStart, dueDay <= windowEnd {
                 let rollup = FinanceCalendarDueLine(
                     commitment: commitment,
-                    amount: amount,
+                    amount: occurrenceAmount,
                     occurrenceDueDate: dueDate,
                     isPaid: false,
                     paidRecordedDate: nil,
@@ -155,10 +160,10 @@ package enum FinanceCalendarProjection {
                 )
                 switch commitment.type {
                 case .income:
-                    overdueIncomeSum += amount
+                    overdueIncomeSum += occurrenceAmount
                     overdueMirrorIncomeLines.append(rollup)
                 case .expense:
-                    overdueExpenseSum += amount
+                    overdueExpenseSum += occurrenceAmount
                     overdueMirrorExpenseLines.append(rollup)
                 }
                 continue
@@ -181,7 +186,7 @@ package enum FinanceCalendarProjection {
 
             let line = FinanceCalendarDueLine(
                 commitment: commitment,
-                amount: amount,
+                amount: lineDisplayAmount,
                 occurrenceDueDate: dueDate,
                 isPaid: paid,
                 paidRecordedDate: recorded,
@@ -192,12 +197,12 @@ package enum FinanceCalendarProjection {
             switch commitment.type {
             case .income:
                 if !paid {
-                    bucket.incomeTotalUnpaid += amount
+                    bucket.incomeTotalUnpaid += occurrenceAmount
                 }
                 bucket.incomeLines.append(line)
             case .expense:
                 if !paid {
-                    bucket.expenseTotalUnpaid += amount
+                    bucket.expenseTotalUnpaid += occurrenceAmount
                 }
                 bucket.expenseLines.append(line)
             }

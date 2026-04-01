@@ -146,10 +146,6 @@ struct TransactionEditorView: View {
             deferredCommitmentID = nil
             deferredDueDate = date
         }
-        .onChange(of: settlementDueDate) { _, newDate in
-            guard planningMode == .closesCommitment, let settlementCommitmentID else { return }
-            amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: settlementCommitmentID, dueDate: newDate))
-        }
         .sheet(isPresented: $showingCommitmentSheet) {
             CommitmentEditorView(
                 viewModel: viewModel,
@@ -524,15 +520,14 @@ struct TransactionEditorView: View {
         case .deferred:
             deferredDueDate = commitment.createdAt
         case .settlement:
+            let due = commitment.isRecurring ? nearestInstance(for: commitment) : commitment.createdAt
+            settlementDueDate = due
             if !isEditing {
                 name = commitment.name
                 type = commitment.type
-                amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: commitment.createdAt))
                 tags = commitment.tags
+                amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due))
             }
-            let due = commitment.isRecurring ? nearestInstance(for: commitment) : commitment.createdAt
-            settlementDueDate = due
-            amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due))
         }
     }
 
