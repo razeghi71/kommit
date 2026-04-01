@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - Transaction Editor
 
-struct FinancialTransactionDraftBaseline: Equatable {
-    var kind: FinancialTransactionKind
+private struct FinancialTransactionDraftBaseline: Equatable {
+    var planningMode: TransactionPlanningMode
     var name: String
     var type: FinancialFlowType
     var amount: Double
@@ -18,6 +18,22 @@ struct FinancialTransactionDraftBaseline: Equatable {
 private enum TransactionCommitmentLinkRole {
     case deferred
     case settlement
+}
+
+private enum TransactionPlanningMode: String, CaseIterable, Identifiable {
+    case none
+    case forecast
+    case closesCommitment
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none: "None"
+        case .forecast: "Part of a forecast"
+        case .closesCommitment: "Closes a commitment"
+        }
+    }
 }
 
 private enum RecordedTransactionPaymentMode: String, CaseIterable, Identifiable {
@@ -46,7 +62,7 @@ struct TransactionEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var kind: FinancialTransactionKind = .recorded
+    @State private var planningMode: TransactionPlanningMode = .none
     @State private var name: String = ""
     @State private var type: FinancialFlowType = .expense
     @State private var amount: String = ""
@@ -75,8 +91,12 @@ struct TransactionEditorView: View {
         Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
     }
 
+    private var savedKind: FinancialTransactionKind {
+        planningMode == .closesCommitment ? .settlement : .recorded
+    }
+
     private var usesDeferredCommitmentAmount: Bool {
-        kind == .recorded && showsDeferredCommitmentSection && deferredCommitmentID != nil
+        showsDeferredCommitmentSection && deferredCommitmentID != nil
     }
 
     private var resolvedAmountValue: Double {
@@ -91,14 +111,20 @@ struct TransactionEditorView: View {
     }
 
     private var showsDeferredCommitmentSection: Bool {
-        kind == .recorded && recordedPaymentMode == .deferredToCommitment
+        planningMode == .forecast && type == .expense && recordedPaymentMode == .deferredToCommitment
     }
 
     private var planningIsValid: Bool {
-        switch kind {
-        case .recorded:
+        switch planningMode {
+        case .none:
             return true
-        case .settlement:
+        case .forecast:
+            guard selectedForecastID != nil else { return false }
+            if showsDeferredCommitmentSection {
+                return deferredCommitmentID != nil
+            }
+            return true
+        case .closesCommitment:
             return settlementCommitmentID != nil
         }
     }
@@ -115,13 +141,13 @@ struct TransactionEditorView: View {
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadTransaction() }
         .onChange(of: type) { _, newType in
-            guard kind == .recorded, newType == .income else { return }
+            guard planningMode != .closesCommitment, newType == .income else { return }
             recordedPaymentMode = .payNow
             deferredCommitmentID = nil
             deferredDueDate = date
         }
         .onChange(of: settlementDueDate) { _, newDate in
-            guard kind == .settlement, let settlementCommitmentID else { return }
+            guard planningMode == .closesCommitment, let settlementCommitmentID else { return }
             amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: settlementCommitmentID, dueDate: newDate))
         }
         .sheet(isPresented: $showingCommitmentSheet) {
@@ -154,26 +180,26 @@ struct TransactionEditorView: View {
 
     private func currentDraftSnapshot() -> FinancialTransactionDraftBaseline {
         FinancialTransactionDraftBaseline(
-            kind: kind,
+            planningMode: planningMode,
             name: name.trimmingCharacters(in: .whitespaces),
             type: type,
             amount: resolvedAmountValue,
             date: date,
             tags: tags,
             note: note.trimmingCharacters(in: .whitespaces).nilIfEmpty,
-            forecastID: kind == .recorded ? selectedForecastID : nil,
-            deferredTo: kind == .recorded ? currentDeferredRef : nil,
-            settles: kind == .settlement ? currentSettlementRef : nil
+            forecastID: planningMode == .forecast ? selectedForecastID : nil,
+            deferredTo: planningMode == .forecast ? currentDeferredRef : nil,
+            settles: planningMode == .closesCommitment ? currentSettlementRef : nil
         )
     }
 
     private var currentDeferredRef: CommitmentOccurrenceRef? {
-        guard let deferredCommitmentID else { return nil }
+        guard showsDeferredCommitmentSection, let deferredCommitmentID else { return nil }
         return CommitmentOccurrenceRef(commitmentID: deferredCommitmentID, dueDate: deferredDueDate)
     }
 
     private var currentSettlementRef: CommitmentOccurrenceRef? {
-        guard let settlementCommitmentID else { return nil }
+        guard planningMode == .closesCommitment, let settlementCommitmentID else { return nil }
         return CommitmentOccurrenceRef(commitmentID: settlementCommitmentID, dueDate: settlementDueDate)
     }
 
@@ -196,62 +222,32 @@ struct TransactionEditorView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 16) {
-            FieldGroup("Transaction Type") {
-                Picker("", selection: $kind) {
-                    Text("Recorded").tag(FinancialTransactionKind.recorded)
-                    Text("Settlement").tag(FinancialTransactionKind.settlement)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .onChange(of: kind) { _, newKind in
-                    switch newKind {
-                    case .recorded:
-                        settlementCommitmentID = nil
-                        settlementDueDate = date
-                    case .settlement:
-                        selectedForecastID = nil
-                        recordedPaymentMode = .payNow
-                        deferredCommitmentID = nil
-                        deferredDueDate = date
-                    }
-                }
+            planningSection
 
-                Text(kind == .recorded
-                    ? "Recorded transactions capture the real-world purchase or income event. You can optionally attribute them to a forecast and defer them to a later bill."
-                    : "Settlement transactions clear a commitment occurrence when you actually pay it.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if kind == .recorded {
+            if planningMode == .forecast {
                 forecastSection
-                recordedDetailsSection
-                paymentSection
-            } else {
-                settlementDetailsSection
-                settlementSection
+            } else if planningMode == .closesCommitment {
+                commitmentLinkSection
             }
 
-            FieldGroup("Tags & Notes") {
-                TagInputField(
-                    tags: $tags,
-                    input: $tagInput,
-                    suggestions: tagSuggestions
-                )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Note")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    TextField("Optional", text: $note)
-                        .textFieldStyle(.roundedBorder)
-                }
-            }
+            detailsSection
+            paymentSection
         }
     }
 
-    private var recordedDetailsSection: some View {
+    private var planningSection: some View {
+        FieldGroup("Planning") {
+            Picker("", selection: $planningMode) {
+                ForEach(TransactionPlanningMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+        }
+    }
+
+    private var detailsSection: some View {
         FieldGroup("Details") {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Name")
@@ -261,59 +257,36 @@ struct TransactionEditorView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            DatePicker("Recorded on", selection: $date, displayedComponents: .date)
-        }
-    }
+            DatePicker("Date", selection: $date, displayedComponents: .date)
 
-    private var settlementDetailsSection: some View {
-        FieldGroup("Details") {
+            TagInputField(
+                tags: $tags,
+                input: $tagInput,
+                suggestions: tagSuggestions
+            )
+
             VStack(alignment: .leading, spacing: 3) {
-                Text("Name")
+                Text("Note")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                TextField("e.g. Rent payment", text: $name)
+                TextField("Optional", text: $note)
                     .textFieldStyle(.roundedBorder)
             }
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Type")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Picker("", selection: $type) {
-                        ForEach(FinancialFlowType.allCases, id: \.self) { value in
-                            Text(value.displayName).tag(value)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Amount")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 2) {
-                        Text("$").foregroundStyle(.tertiary)
-                        TextField("0.00", text: $amount)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-            }
-
-            DatePicker("Settled on", selection: $date, displayedComponents: .date)
         }
     }
 
     private var forecastSection: some View {
         FieldGroup("Forecast") {
-            LabeledContent("Forecast") {
+            linkedPickerRow(title: "Forecast") {
                 Picker("", selection: $selectedForecastID) {
                     Text("None").tag(nil as UUID?)
                     ForEach(Array(viewModel.forecasts.values).sorted { $0.name < $1.name }) { item in
                         Text(item.name.isEmpty ? "Untitled" : item.name).tag(item.id as UUID?)
                     }
                 }
+                .pickerStyle(.menu)
+                .controlSize(.regular)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .onChange(of: selectedForecastID) { _, id in
                     applyForecastSelection(id)
                 }
@@ -321,90 +294,14 @@ struct TransactionEditorView: View {
         }
     }
 
-    private var paymentSection: some View {
-        FieldGroup("Payment") {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Type")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Picker("", selection: $type) {
-                    ForEach(FinancialFlowType.allCases, id: \.self) { value in
-                        Text(value.displayName).tag(value)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-
-            if type == .expense {
-                Picker("", selection: $recordedPaymentMode) {
-                    ForEach(RecordedTransactionPaymentMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .onChange(of: recordedPaymentMode) { _, newMode in
-                    switch newMode {
-                    case .payNow:
-                        deferredCommitmentID = nil
-                        deferredDueDate = date
-                    case .deferredToCommitment:
-                        if deferredCommitmentID == nil {
-                            deferredDueDate = date
-                        }
-                    }
-                }
-            }
-
-            if type == .income || recordedPaymentMode == .payNow {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Amount")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 2) {
-                        Text("$").foregroundStyle(.tertiary)
-                        TextField("0.00", text: $amount)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-            } else if showsDeferredCommitmentSection {
-                Text("For forecast tracking in the Summary tab, this will still count on the recorded date.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(red: 0.72, green: 0.48, blue: 0.02))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                commitmentPicker(
-                    title: "Commitment",
-                    selection: $deferredCommitmentID,
-                    onChange: { _, id in applyCommitmentSelection(id, role: .deferred) },
-                    items: deferEligibleCommitments,
-                    onNew: {
-                        commitmentSheetRole = .deferred
-                        showingCommitmentSheet = true
-                    }
-                )
-
-                if deferredCommitmentID != nil {
-                    Text("Recorded transaction amount will be taken from the deferred commitment.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var settlementSection: some View {
-        FieldGroup("Commitment Settlement") {
+    private var commitmentLinkSection: some View {
+        FieldGroup("Commitment") {
             commitmentPicker(
                 title: "Commitment",
                 selection: $settlementCommitmentID,
                 onChange: { _, id in applyCommitmentSelection(id, role: .settlement) },
                 items: Array(viewModel.commitments.values).sorted { $0.name < $1.name },
-                onNew: {
-                    commitmentSheetRole = .settlement
-                    showingCommitmentSheet = true
-                }
+                onNew: nil
             )
 
             commitmentOccurrencePicker(
@@ -414,28 +311,139 @@ struct TransactionEditorView: View {
         }
     }
 
+    private var paymentSection: some View {
+        FieldGroup("Payment") {
+            typePicker
+
+            switch planningMode {
+            case .none:
+                amountField
+            case .forecast:
+                if type == .expense {
+                    Picker("", selection: $recordedPaymentMode) {
+                        ForEach(RecordedTransactionPaymentMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                    .onChange(of: recordedPaymentMode) { _, newMode in
+                        switch newMode {
+                        case .payNow:
+                            deferredCommitmentID = nil
+                            deferredDueDate = date
+                        case .deferredToCommitment:
+                            if deferredCommitmentID == nil {
+                                deferredDueDate = date
+                            }
+                        }
+                    }
+                }
+
+                if type == .income || recordedPaymentMode == .payNow {
+                    amountField
+                } else if showsDeferredCommitmentSection {
+                    Text("For forecast tracking in the Summary tab, this will still count on the recorded date.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(red: 0.72, green: 0.48, blue: 0.02))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    commitmentPicker(
+                        title: "Commitment",
+                        selection: $deferredCommitmentID,
+                        onChange: { _, id in applyCommitmentSelection(id, role: .deferred) },
+                        items: deferEligibleCommitments,
+                        onNew: {
+                            commitmentSheetRole = .deferred
+                            showingCommitmentSheet = true
+                        }
+                    )
+
+                    if deferredCommitmentID != nil {
+                        Text("Transaction amount will be taken from the deferred commitment.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .closesCommitment:
+                amountField
+            }
+        }
+    }
+
+    private var typePicker: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Type")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Picker("", selection: $type) {
+                ForEach(FinancialFlowType.allCases, id: \.self) { value in
+                    Text(value.displayName).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+    }
+
+    private var amountField: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Amount")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 2) {
+                Text("$").foregroundStyle(.tertiary)
+                TextField("0.00", text: $amount)
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+
     private func commitmentPicker(
         title: String,
         selection: Binding<UUID?>,
         onChange: @escaping (UUID?, UUID?) -> Void,
         items: [Commitment],
-        onNew: @escaping () -> Void
+        onNew: (() -> Void)?
+    ) -> some View {
+        linkedPickerRow(title: title) {
+            Picker("", selection: selection) {
+                Text("Choose…").tag(nil as UUID?)
+                ForEach(items) { item in
+                    Text(commitmentPickerLabel(for: item)).tag(item.id as UUID?)
+                }
+            }
+            .pickerStyle(.menu)
+            .controlSize(.regular)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: selection.wrappedValue, onChange)
+        } trailing: {
+            if let onNew {
+                Button("New…", action: onNew)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private func linkedPickerRow<PickerContent: View, TrailingContent: View>(
+        title: String,
+        @ViewBuilder picker: () -> PickerContent,
+        @ViewBuilder trailing: () -> TrailingContent = { EmptyView() }
     ) -> some View {
         HStack(alignment: .center, spacing: 10) {
-            LabeledContent(title) {
-                Picker("", selection: selection) {
-                    Text("Choose…").tag(nil as UUID?)
-                    ForEach(items) { item in
-                        Text(commitmentPickerLabel(for: item)).tag(item.id as UUID?)
-                    }
-                }
-                .onChange(of: selection.wrappedValue, onChange)
-            }
+            Text(title)
+                .foregroundStyle(.secondary)
+                .frame(width: 88, alignment: .leading)
 
-            Button("New…", action: onNew)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            picker()
+                .labelsHidden()
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .layoutPriority(1)
+
+            trailing()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var deferEligibleCommitments: [Commitment] {
@@ -576,7 +584,7 @@ struct TransactionEditorView: View {
 
     private func loadTransaction() {
         if let txn = transaction {
-            kind = txn.kind
+            planningMode = planningMode(for: txn)
             name = txn.name
             type = txn.type
             amount = String(format: "%.2f", viewModel.resolvedTransactionAmount(txn))
@@ -602,7 +610,7 @@ struct TransactionEditorView: View {
                 settlementDueDate = txn.date
             }
         } else if let prefilledCommitmentID {
-            kind = .settlement
+            planningMode = .closesCommitment
             recordedPaymentMode = .payNow
             settlementCommitmentID = prefilledCommitmentID
             if let commitment = viewModel.commitments[prefilledCommitmentID] {
@@ -615,7 +623,7 @@ struct TransactionEditorView: View {
                 tags = commitment.tags
             }
         } else if let prefilledForecastID {
-            kind = .recorded
+            planningMode = .forecast
             recordedPaymentMode = .payNow
             selectedForecastID = prefilledForecastID
             applyForecastSelection(prefilledForecastID)
@@ -632,10 +640,10 @@ struct TransactionEditorView: View {
     private func save() {
         let saved = FinancialTransaction(
             id: transaction?.id ?? UUID(),
-            kind: kind,
-            forecastID: kind == .recorded ? selectedForecastID : nil,
-            deferredTo: kind == .recorded ? currentDeferredRef : nil,
-            settles: kind == .settlement ? currentSettlementRef : nil,
+            kind: savedKind,
+            forecastID: planningMode == .forecast ? selectedForecastID : nil,
+            deferredTo: planningMode == .forecast ? currentDeferredRef : nil,
+            settles: planningMode == .closesCommitment ? currentSettlementRef : nil,
             name: name.trimmingCharacters(in: .whitespaces),
             amount: storedAmountValue,
             type: type,
@@ -677,5 +685,15 @@ struct TransactionEditorView: View {
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
         return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
+    }
+
+    private func planningMode(for transaction: FinancialTransaction) -> TransactionPlanningMode {
+        if transaction.kind == .settlement || transaction.settles != nil {
+            return .closesCommitment
+        }
+        if transaction.forecastID != nil || transaction.deferredTo != nil {
+            return .forecast
+        }
+        return .none
     }
 }

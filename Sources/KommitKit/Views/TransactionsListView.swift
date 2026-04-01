@@ -177,16 +177,9 @@ struct TransactionRow: View {
         if let settles = transaction.settles {
             let due = Self.dateFormatter.string(from: settles.dueDate)
             let title = settlementCommitmentName ?? "Commitment"
-            lines.append("Settlement for \(title) · \(due) occurrence")
+            lines.append("Closes \(title) · \(due) occurrence")
         }
         return lines
-    }
-
-    private var roleBadge: String {
-        switch transaction.kind {
-        case .recorded: "Recorded"
-        case .settlement: "Settlement"
-        }
     }
 
     private var metadataItems: [String] { transaction.tags }
@@ -199,16 +192,8 @@ struct TransactionRow: View {
                 .frame(width: 60, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
-                        .font(.system(size: 14, weight: .medium))
-                    Text(roleBadge)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
-                }
+                Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
+                    .font(.system(size: 14, weight: .medium))
                 if !metadataLines.isEmpty {
                     ForEach(metadataLines, id: \.self) { line in
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
