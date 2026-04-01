@@ -4,6 +4,7 @@ import Foundation
 package struct FinanceCalendarDueLine: Identifiable, Equatable {
     package let id: String
     package let commitment: Commitment
+    package let amount: Double
     /// Occurrence due date; the column day is the due day when unpaid, or the paid-on date when paid.
     package let occurrenceDueDate: Date
     package let isPaid: Bool
@@ -14,12 +15,14 @@ package struct FinanceCalendarDueLine: Identifiable, Equatable {
 
     package init(
         commitment: Commitment,
+        amount: Double,
         occurrenceDueDate: Date,
         isPaid: Bool,
         paidRecordedDate: Date? = nil,
         isRollupOnToday: Bool = false
     ) {
         self.commitment = commitment
+        self.amount = amount
         self.occurrenceDueDate = occurrenceDueDate
         self.isPaid = isPaid
         self.paidRecordedDate = paidRecordedDate
@@ -42,16 +45,20 @@ package struct FinanceCalendarForecastLine: Identifiable, Equatable {
     }
 }
 
-/// A calendar day entry from a recorded transaction linked to a forecast (actual amount, one row per txn).
+/// A calendar day entry from a recorded transaction attributed to a forecast (actual amount, one row per txn).
 package struct FinanceCalendarForecastRealizedLine: Identifiable, Equatable {
     package var id: UUID { transaction.id }
     package let transaction: FinancialTransaction
+    package let amount: Double
     /// Present when the forecast still exists; otherwise use `transaction.name` in the UI.
     package let forecast: Forecast?
+    package let deferredCommitment: Commitment?
 
-    package init(transaction: FinancialTransaction, forecast: Forecast?) {
+    package init(transaction: FinancialTransaction, amount: Double, forecast: Forecast?, deferredCommitment: Commitment?) {
         self.transaction = transaction
+        self.amount = amount
         self.forecast = forecast
+        self.deferredCommitment = deferredCommitment
     }
 }
 
@@ -73,7 +80,7 @@ package struct FinanceCalendarDayColumn: Identifiable {
     package let forecastExpenseTotal: Double
     package let forecastIncomeLines: [FinanceCalendarForecastLine]
     package let forecastExpenseLines: [FinanceCalendarForecastLine]
-    /// Recorded transactions linked to a forecast (actual amounts), bucketed by payment `date`. Not included in balance / In–Out totals.
+    /// Recorded transactions attributed to a forecast (actual amounts), bucketed by transaction `date`. Not included in balance / In–Out totals.
     package let forecastRealizedIncomeTotal: Double
     package let forecastRealizedExpenseTotal: Double
     package let forecastRealizedIncomeLines: [FinanceCalendarForecastRealizedLine]
@@ -95,8 +102,11 @@ package enum FinanceCalendarProjection {
         today: Date,
         allCommitments: [(commitment: Commitment, date: Date)],
         allForecasts: [(forecast: Forecast, date: Date)],
-        forecastLinkedTransactions: [FinancialTransaction],
+        recordedTransactions: [FinancialTransaction],
         forecastsByID: [UUID: Forecast],
+        commitmentsByID: [UUID: Commitment],
+        commitmentAmount: (UUID, Date) -> Double,
+        recordedTransactionAmount: (FinancialTransaction) -> Double,
         isPaid: (UUID, Date) -> Bool,
         paidRecordedOn: (UUID, Date) -> Date?,
         startingBalanceAtTodayStart: Double
@@ -129,6 +139,7 @@ package enum FinanceCalendarProjection {
 
         for (commitment, dueDate) in allCommitments {
             let dueDay = calendar.startOfDay(for: dueDate)
+            let amount = commitmentAmount(commitment.id, dueDate)
             let paid = isPaid(commitment.id, dueDate)
             let recorded = paid ? paidRecordedOn(commitment.id, dueDate) : nil
 
@@ -136,6 +147,7 @@ package enum FinanceCalendarProjection {
             if !paid, dueDay < todayStart, dueDay >= windowStart, dueDay <= windowEnd {
                 let rollup = FinanceCalendarDueLine(
                     commitment: commitment,
+                    amount: amount,
                     occurrenceDueDate: dueDate,
                     isPaid: false,
                     paidRecordedDate: nil,
@@ -143,10 +155,10 @@ package enum FinanceCalendarProjection {
                 )
                 switch commitment.type {
                 case .income:
-                    overdueIncomeSum += commitment.amount
+                    overdueIncomeSum += amount
                     overdueMirrorIncomeLines.append(rollup)
                 case .expense:
-                    overdueExpenseSum += commitment.amount
+                    overdueExpenseSum += amount
                     overdueMirrorExpenseLines.append(rollup)
                 }
                 continue
@@ -169,6 +181,7 @@ package enum FinanceCalendarProjection {
 
             let line = FinanceCalendarDueLine(
                 commitment: commitment,
+                amount: amount,
                 occurrenceDueDate: dueDate,
                 isPaid: paid,
                 paidRecordedDate: recorded,
@@ -179,39 +192,46 @@ package enum FinanceCalendarProjection {
             switch commitment.type {
             case .income:
                 if !paid {
-                    bucket.incomeTotalUnpaid += commitment.amount
+                    bucket.incomeTotalUnpaid += amount
                 }
                 bucket.incomeLines.append(line)
             case .expense:
                 if !paid {
-                    bucket.expenseTotalUnpaid += commitment.amount
+                    bucket.expenseTotalUnpaid += amount
                 }
                 bucket.expenseLines.append(line)
             }
             buckets[bucketDay] = bucket
         }
 
-        // Calendar days with a forecast-linked payment: skip projected line on that day for that forecast (keyed by payment date, not a stored occurrence).
+        // Calendar days with a recorded forecast-attributed transaction: skip the projection on that day for that forecast.
         var forecastOccurrenceDaysWithRealized: Set<String> = []
-        for txn in forecastLinkedTransactions {
+        for txn in recordedTransactions {
             guard let fid = txn.forecastID else { continue }
             let payDay = calendar.startOfDay(for: txn.date)
             forecastOccurrenceDaysWithRealized.insert("\(fid.uuidString)|\(payDay.timeIntervalSinceReferenceDate)")
         }
 
-        for txn in forecastLinkedTransactions {
-            guard let fid = txn.forecastID else { continue }
+        for txn in recordedTransactions {
+            guard txn.forecastID != nil || txn.deferredTo != nil else { continue }
             let day = calendar.startOfDay(for: txn.date)
             guard day >= windowStart, day <= windowEnd else { continue }
-            let forecast = forecastsByID[fid]
-            let line = FinanceCalendarForecastRealizedLine(transaction: txn, forecast: forecast)
+            let forecast = txn.forecastID.flatMap { forecastsByID[$0] }
+            let deferredCommitment = txn.deferredTo.flatMap { commitmentsByID[$0.commitmentID] }
+            let amount = recordedTransactionAmount(txn)
+            let line = FinanceCalendarForecastRealizedLine(
+                transaction: txn,
+                amount: amount,
+                forecast: forecast,
+                deferredCommitment: deferredCommitment
+            )
             var bucket = buckets[day] ?? Bucket()
             switch txn.type {
             case .income:
-                bucket.forecastRealizedIncomeTotal += txn.amount
+                bucket.forecastRealizedIncomeTotal += amount
                 bucket.forecastRealizedIncomeLines.append(line)
             case .expense:
-                bucket.forecastRealizedExpenseTotal += txn.amount
+                bucket.forecastRealizedExpenseTotal += amount
                 bucket.forecastRealizedExpenseLines.append(line)
             }
             buckets[day] = bucket
@@ -260,7 +280,7 @@ package enum FinanceCalendarProjection {
         while scan < todayStart {
             let bucket = buckets[scan] ?? Bucket()
             cumulativeUnpaidNetBeforeToday += bucket.incomeTotalUnpaid - bucket.expenseTotalUnpaid
-            // Unrealized forecast projections only; realized forecast-linked txns are informational on the column.
+            // Unrealized forecast projections only; realized recorded txns are informational on the column.
             let forecastNet = bucket.forecastIncomeTotal - bucket.forecastExpenseTotal
             cumulativeForecastNetBeforeToday += forecastNet
             guard let next = calendar.date(byAdding: .day, value: 1, to: scan) else { break }
@@ -275,6 +295,7 @@ package enum FinanceCalendarProjection {
         func sortedRealizedForecastLines(_ lines: [FinanceCalendarForecastRealizedLine]) -> [FinanceCalendarForecastRealizedLine] {
             func title(_ line: FinanceCalendarForecastRealizedLine) -> String {
                 if let f = line.forecast, !f.name.isEmpty { return f.name }
+                if let c = line.deferredCommitment, !c.name.isEmpty { return c.name }
                 if !line.transaction.name.isEmpty { return line.transaction.name }
                 return ""
             }

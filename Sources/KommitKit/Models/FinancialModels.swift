@@ -640,53 +640,73 @@ package struct Forecast: Identifiable, Codable, Equatable {
 
 // MARK: - Financial Transaction
 
+package struct CommitmentOccurrenceRef: Codable, Equatable {
+    var commitmentID: UUID
+    var dueDate: Date
+
+    package init(commitmentID: UUID, dueDate: Date) {
+        self.commitmentID = commitmentID
+        self.dueDate = dueDate
+    }
+}
+
+package enum FinancialTransactionKind: String, Codable, CaseIterable {
+    case recorded
+    case settlement
+}
+
 package struct FinancialTransaction: Identifiable, Codable, Equatable {
     package let id: UUID
-    var commitmentID: UUID?
+    var kind: FinancialTransactionKind
     var forecastID: UUID?
+    /// Present on recorded transactions that should be rolled into a later bill occurrence.
+    var deferredTo: CommitmentOccurrenceRef?
+    /// Present on settlement transactions that clear a due bill occurrence.
+    var settles: CommitmentOccurrenceRef?
     var name: String
     var amount: Double
     var type: FinancialFlowType
-    /// The date the payment was actually made.
+    /// The day this transaction itself happened.
     var date: Date
-    /// Commitment occurrence this payment covers (same calendar day as the due occurrence). Nil for forecast-linked and unlinked transactions.
-    var dueDate: Date?
     var tags: [String]
     var note: String?
 
     package init(
         id: UUID = UUID(),
-        commitmentID: UUID? = nil,
+        kind: FinancialTransactionKind = .recorded,
         forecastID: UUID? = nil,
+        deferredTo: CommitmentOccurrenceRef? = nil,
+        settles: CommitmentOccurrenceRef? = nil,
         name: String = "",
         amount: Double = 0,
         type: FinancialFlowType = .expense,
         date: Date = Date(),
-        dueDate: Date? = nil,
         tags: [String] = [],
         note: String? = nil
     ) {
         self.id = id
-        self.commitmentID = commitmentID
+        self.kind = kind
         self.forecastID = forecastID
+        self.deferredTo = deferredTo
+        self.settles = settles
         self.name = name
         self.amount = amount
         self.type = type
         self.date = date
-        self.dueDate = dueDate
         self.tags = Self.normalizedTags(from: tags)
         self.note = note
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
-        case commitmentID
+        case kind
         case forecastID
+        case deferredTo
+        case settles
         case name
         case amount
         case type
         case date
-        case dueDate
         case tags
         case note
     }
@@ -694,19 +714,14 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
     package init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        commitmentID = try container.decodeIfPresent(UUID.self, forKey: .commitmentID)
+        kind = try container.decodeIfPresent(FinancialTransactionKind.self, forKey: .kind) ?? .recorded
         forecastID = try container.decodeIfPresent(UUID.self, forKey: .forecastID)
+        deferredTo = try container.decodeIfPresent(CommitmentOccurrenceRef.self, forKey: .deferredTo)
+        settles = try container.decodeIfPresent(CommitmentOccurrenceRef.self, forKey: .settles)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0
         type = try container.decodeIfPresent(FinancialFlowType.self, forKey: .type) ?? .expense
         date = try container.decodeIfPresent(Date.self, forKey: .date) ?? Date()
-        if forecastID != nil {
-            dueDate = nil
-        } else if commitmentID != nil {
-            dueDate = try container.decodeIfPresent(Date.self, forKey: .dueDate) ?? date
-        } else {
-            dueDate = nil
-        }
         tags = Self.normalizedTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
         note = try container.decodeIfPresent(String.self, forKey: .note)
     }
@@ -714,16 +729,22 @@ package struct FinancialTransaction: Identifiable, Codable, Equatable {
     package func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
-        try container.encodeIfPresent(commitmentID, forKey: .commitmentID)
+        try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(forecastID, forKey: .forecastID)
+        try container.encodeIfPresent(deferredTo, forKey: .deferredTo)
+        try container.encodeIfPresent(settles, forKey: .settles)
         try container.encode(name, forKey: .name)
-        try container.encode(amount, forKey: .amount)
+        if !(kind == .recorded && deferredTo != nil) {
+            try container.encode(amount, forKey: .amount)
+        }
         try container.encode(type, forKey: .type)
         try container.encode(date, forKey: .date)
-        try container.encodeIfPresent(dueDate, forKey: .dueDate)
         try container.encode(Self.normalizedTags(from: tags), forKey: .tags)
         try container.encodeIfPresent(note, forKey: .note)
     }
+
+    var isRecorded: Bool { kind == .recorded }
+    var isSettlement: Bool { kind == .settlement }
 
     private static func normalizedTags(from rawTags: [String]) -> [String] {
         FinancialModels.normalizedFinancialTags(from: rawTags)

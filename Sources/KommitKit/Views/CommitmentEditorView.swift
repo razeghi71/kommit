@@ -22,11 +22,22 @@ struct CommitmentDraftBaseline: Equatable {
     var recurrence: Recurrence?
 }
 
+struct CommitmentEditorSeed {
+    var name: String
+    var type: FinancialFlowType
+    var amount: Double
+    var eventDate: Date
+    var tags: [String]
+}
+
 // MARK: - Commitment editor
 
 struct CommitmentEditorView: View {
     @ObservedObject var viewModel: KommitViewModel
     let commitment: Commitment?
+    var seed: CommitmentEditorSeed?
+    var onSaveCommitment: ((Commitment) -> Void)?
+    var allowsRecurrence: Bool = true
 
     @Environment(\.dismiss) private var dismiss
 
@@ -106,6 +117,7 @@ struct CommitmentEditorView: View {
     }
 
     private func normalizedRecurrenceForDraft() -> Recurrence? {
+        guard allowsRecurrence else { return nil }
         var r = buildRecurrence()
         r?.startDate = eventDate
         return r
@@ -189,17 +201,23 @@ struct CommitmentEditorView: View {
             FieldGroup("Schedule") {
                 DatePicker("Date", selection: $eventDate, displayedComponents: .date)
 
-                recurrencePicker
+                if allowsRecurrence {
+                    recurrencePicker
 
-                if selectedPreset == .custom, let rec = customRecurrence {
-                    HStack(spacing: 4) {
-                        Image(systemName: "repeat")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text(rec.description)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
+                    if selectedPreset == .custom, let rec = customRecurrence {
+                        HStack(spacing: 4) {
+                            Image(systemName: "repeat")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text(rec.description)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } else {
+                    Text("This commitment will be created as a one-off due item.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -345,18 +363,32 @@ struct CommitmentEditorView: View {
             isActive = existing.isActive
             eventDate = existing.createdAt
 
-            let preset = presetForRecurrence(existing.recurrence)
-            selectedPreset = preset
-            if preset == .custom {
-                customRecurrence = existing.recurrence
+            if allowsRecurrence {
+                let preset = presetForRecurrence(existing.recurrence)
+                selectedPreset = preset
+                if preset == .custom {
+                    customRecurrence = existing.recurrence
+                }
+            } else {
+                selectedPreset = .doesNotRepeat
+                customRecurrence = nil
             }
+        } else if let seed {
+            name = seed.name
+            type = seed.type
+            amount = String(format: "%.2f", seed.amount)
+            tags = seed.tags
+            isActive = true
+            eventDate = seed.eventDate
+            selectedPreset = .doesNotRepeat
+            customRecurrence = nil
         }
         captureDraftBaseline()
     }
 
     private func save() {
         let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
-        var recurrence = buildRecurrence()
+        var recurrence = allowsRecurrence ? buildRecurrence() : nil
         recurrence?.startDate = eventDate
 
         let saved = Commitment(
@@ -375,6 +407,7 @@ struct CommitmentEditorView: View {
         } else {
             viewModel.addCommitment(saved)
         }
+        onSaveCommitment?(saved)
         dismiss()
     }
 

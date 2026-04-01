@@ -100,16 +100,25 @@ struct TransactionsListView: View {
         viewModel.transactionsForMonth(month: filterMonth, year: filterYear)
     }
 
-    private func planningLinkName(for transaction: FinancialTransaction) -> String? {
-        if let commitmentID = transaction.commitmentID,
-            let commitment = viewModel.commitments[commitmentID] {
-            return commitment.name.isEmpty ? "Untitled" : commitment.name
-        }
-        if let forecastID = transaction.forecastID,
-            let forecast = viewModel.forecasts[forecastID] {
-            return forecast.name.isEmpty ? "Untitled" : forecast.name
-        }
-        return nil
+    private func forecastName(for transaction: FinancialTransaction) -> String? {
+        guard let forecastID = transaction.forecastID,
+              let forecast = viewModel.forecasts[forecastID]
+        else { return nil }
+        return forecast.name.isEmpty ? "Untitled" : forecast.name
+    }
+
+    private func deferredCommitmentName(for transaction: FinancialTransaction) -> String? {
+        guard let deferredTo = transaction.deferredTo,
+              let commitment = viewModel.commitments[deferredTo.commitmentID]
+        else { return nil }
+        return commitment.name.isEmpty ? "Untitled" : commitment.name
+    }
+
+    private func settlementCommitmentName(for transaction: FinancialTransaction) -> String? {
+        guard let settles = transaction.settles,
+              let commitment = viewModel.commitments[settles.commitmentID]
+        else { return nil }
+        return commitment.name.isEmpty ? "Untitled" : commitment.name
     }
 
     private var transactionsList: some View {
@@ -131,7 +140,10 @@ struct TransactionsListView: View {
                     ForEach(filteredTransactions) { txn in
                         TransactionRow(
                             transaction: txn,
-                            planningLinkName: planningLinkName(for: txn),
+                            displayAmount: viewModel.resolvedTransactionAmount(txn),
+                            forecastName: forecastName(for: txn),
+                            deferredCommitmentName: deferredCommitmentName(for: txn),
+                            settlementCommitmentName: settlementCommitmentName(for: txn),
                             onEdit: { editingTransaction = txn },
                             onDelete: { viewModel.deleteFinancialTransaction(txn.id) }
                         )
@@ -145,26 +157,36 @@ struct TransactionsListView: View {
 
 struct TransactionRow: View {
     let transaction: FinancialTransaction
-    let planningLinkName: String?
+    let displayAmount: Double
+    let forecastName: String?
+    let deferredCommitmentName: String?
+    let settlementCommitmentName: String?
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    private var hasPlanningLink: Bool {
-        transaction.commitmentID != nil || transaction.forecastID != nil
+    private var metadataLines: [String] {
+        var lines: [String] = []
+        if let forecastName {
+            lines.append("Forecast: \(forecastName)")
+        }
+        if let deferredTo = transaction.deferredTo {
+            let due = Self.dateFormatter.string(from: deferredTo.dueDate)
+            let title = deferredCommitmentName ?? "Commitment"
+            lines.append("Deferred to \(title) · due \(due)")
+        }
+        if let settles = transaction.settles {
+            let due = Self.dateFormatter.string(from: settles.dueDate)
+            let title = settlementCommitmentName ?? "Commitment"
+            lines.append("Settlement for \(title) · \(due) occurrence")
+        }
+        return lines
     }
 
-    private var linkedPlanningSubtitle: String {
-        let name: String
-        if let planningLinkName, !planningLinkName.isEmpty {
-            name = planningLinkName
-        } else {
-            name = "Planning item"
+    private var roleBadge: String {
+        switch transaction.kind {
+        case .recorded: "Recorded"
+        case .settlement: "Settlement"
         }
-        if transaction.forecastID != nil {
-            return name
-        }
-        let due = Self.dateFormatter.string(from: transaction.dueDate ?? transaction.date)
-        return "\(name): \(due) occurrence"
     }
 
     private var metadataItems: [String] { transaction.tags }
@@ -177,17 +199,27 @@ struct TransactionRow: View {
                 .frame(width: 60, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
-                    .font(.system(size: 14, weight: .medium))
-                if hasPlanningLink {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Image(systemName: "link")
-                            .font(.system(size: 10, weight: .medium))
-                        Text(linkedPlanningSubtitle)
-                            .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
+                        .font(.system(size: 14, weight: .medium))
+                    Text(roleBadge)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                }
+                if !metadataLines.isEmpty {
+                    ForEach(metadataLines, id: \.self) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Image(systemName: "link")
+                                .font(.system(size: 10, weight: .medium))
+                            Text(line)
+                                .lineLimit(2)
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                     }
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
                 }
                 if let note = transaction.note, !note.isEmpty {
                     Text(note)
@@ -198,7 +230,7 @@ struct TransactionRow: View {
 
             Spacer()
 
-            Text(transaction.type == .income ? "+\(formatAmount(transaction.amount))" : "-\(formatAmount(transaction.amount))")
+            Text(transaction.type == .income ? "+\(formatAmount(displayAmount))" : "-\(formatAmount(displayAmount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundStyle(transaction.type == .income ? .green : .primary)
 

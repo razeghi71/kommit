@@ -81,16 +81,20 @@ struct FinanceSummaryView: View {
 
     // MARK: - Data helpers
 
-    private var monthTransactions: [FinancialTransaction] {
-        viewModel.transactionsForMonth(month: filterMonth, year: filterYear)
+    private var cashMonthTransactions: [FinancialTransaction] {
+        viewModel.cashTransactionsForMonth(month: filterMonth, year: filterYear)
+    }
+
+    private var recordedMonthTransactions: [FinancialTransaction] {
+        viewModel.recordedTransactionsForMonth(month: filterMonth, year: filterYear)
     }
 
     private var totalIncome: Double {
-        monthTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        cashMonthTransactions.filter { $0.type == .income }.reduce(0) { $0 + viewModel.resolvedTransactionAmount($1) }
     }
 
     private var totalExpenses: Double {
-        monthTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+        cashMonthTransactions.filter { $0.type == .expense }.reduce(0) { $0 + viewModel.resolvedTransactionAmount($1) }
     }
 
     // MARK: - 1) Income / Expense Overview
@@ -162,12 +166,13 @@ struct FinanceSummaryView: View {
 
     private var tagSpending: [(tag: String, amount: Double)] {
         var totals: [String: Double] = [:]
-        for txn in monthTransactions where txn.type == .expense {
+        for txn in cashMonthTransactions where txn.type == .expense {
+            let amount = viewModel.resolvedTransactionAmount(txn)
             if txn.tags.isEmpty {
-                totals["Untagged", default: 0] += txn.amount
+                totals["Untagged", default: 0] += amount
             } else {
                 for tag in txn.tags {
-                    totals[tag, default: 0] += txn.amount
+                    totals[tag, default: 0] += amount
                 }
             }
         }
@@ -246,9 +251,9 @@ struct FinanceSummaryView: View {
         }
 
         var actualByForecast: [UUID: Double] = [:]
-        for txn in monthTransactions {
+        for txn in recordedMonthTransactions {
             guard let fid = txn.forecastID else { continue }
-            actualByForecast[fid, default: 0] += txn.amount
+            actualByForecast[fid, default: 0] += viewModel.resolvedTransactionAmount(txn)
         }
 
         let allIDs = Set(expectedByForecast.keys).union(actualByForecast.keys)

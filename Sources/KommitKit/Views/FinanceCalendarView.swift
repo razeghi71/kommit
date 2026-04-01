@@ -7,6 +7,7 @@ package struct FinanceCalendarView: View {
     @State private var forecastQuickLogPayload: FinanceCalendarForecastQuickLogPayload?
     @State private var editingCalendarTransaction: FinancialTransaction?
     @State private var didInitialScrollToToday = false
+    @State private var pendingScrollTarget: Date?
 
     private let horizonDays = 150
     private let columnWidth: CGFloat = 228
@@ -27,6 +28,11 @@ package struct FinanceCalendarView: View {
                 header(onScrollToToday: { scrollCalendarToToday(proxy: proxy) })
                 Divider()
                 calendarBody(scrollProxy: proxy)
+            }
+            .onChange(of: pendingScrollTarget) { _, target in
+                guard let target else { return }
+                scrollCalendarToDate(target, proxy: proxy)
+                pendingScrollTarget = nil
             }
         }
         .sheet(item: $customRecordPayload) { payload in
@@ -82,15 +88,15 @@ package struct FinanceCalendarView: View {
         var paidOccurrenceKeys = Set<String>()
         var paidRecordedDateByKey: [String: Date] = [:]
         for txn in viewModel.financialTransactions.values {
-            guard let sid = txn.commitmentID, let due = txn.dueDate else { continue }
-            let key = Self.commitmentOccurrenceKey(commitmentID: sid, dueDate: due, calendar: cal)
+            guard txn.isSettlement, let settles = txn.settles else { continue }
+            let key = Self.commitmentOccurrenceKey(commitmentID: settles.commitmentID, dueDate: settles.dueDate, calendar: cal)
             paidOccurrenceKeys.insert(key)
             paidRecordedDateByKey[key] = txn.date
         }
 
         let commitmentOccurrences = viewModel.expectedCommitmentOccurrences(from: rangeFrom, to: rangeTo, calendar: cal)
         let forecastOccurrences = viewModel.expectedForecastOccurrences(from: rangeFrom, to: rangeTo, calendar: cal)
-        let forecastLinkedTxns = viewModel.financialTransactions.values.filter { $0.forecastID != nil }
+        let recordedTransactions = viewModel.financialTransactions.values.filter(\.isRecorded)
         return FinanceCalendarProjection.buildColumns(
             calendar: cal,
             rangeStart: rangeFrom,
@@ -98,8 +104,15 @@ package struct FinanceCalendarView: View {
             today: now,
             allCommitments: commitmentOccurrences,
             allForecasts: forecastOccurrences,
-            forecastLinkedTransactions: Array(forecastLinkedTxns),
+            recordedTransactions: Array(recordedTransactions),
             forecastsByID: viewModel.forecasts,
+            commitmentsByID: viewModel.commitments,
+            commitmentAmount: { id, due in
+                viewModel.expectedCommitmentAmount(for: id, dueDate: due, calendar: cal)
+            },
+            recordedTransactionAmount: { txn in
+                viewModel.resolvedTransactionAmount(txn)
+            },
             isPaid: { id, due in
                 paidOccurrenceKeys.contains(Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal))
             },
@@ -124,8 +137,8 @@ package struct FinanceCalendarView: View {
             calendar: cal
         )
         return viewModel.financialTransactions.values.first { txn in
-            guard let cid = txn.commitmentID, let due = txn.dueDate else { return false }
-            return Self.commitmentOccurrenceKey(commitmentID: cid, dueDate: due, calendar: cal) == target
+            guard txn.isSettlement, let settles = txn.settles else { return false }
+            return Self.commitmentOccurrenceKey(commitmentID: settles.commitmentID, dueDate: settles.dueDate, calendar: cal) == target
         }
     }
 
@@ -179,6 +192,13 @@ package struct FinanceCalendarView: View {
         let todayAnchor = calendar.startOfDay(for: Date())
         DispatchQueue.main.async {
             proxy.scrollTo(todayAnchor, anchor: .center)
+        }
+    }
+
+    private func scrollCalendarToDate(_ date: Date, proxy: ScrollViewProxy) {
+        let target = calendar.startOfDay(for: date)
+        DispatchQueue.main.async {
+            proxy.scrollTo(target, anchor: .center)
         }
     }
 
@@ -378,7 +398,7 @@ package struct FinanceCalendarView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.trailing, trailingPadding)
 
-                    Text(isIncome ? "+\(formatPlainAmount(commitment.amount))" : "−\(formatPlainAmount(commitment.amount))")
+                    Text(isIncome ? "+\(formatPlainAmount(line.amount))" : "−\(formatPlainAmount(line.amount))")
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(amountColor)
 
@@ -472,18 +492,23 @@ package struct FinanceCalendarView: View {
         }
     }
 
-    /// Forecast-linked recorded txn: full card using the **transaction** amount (one row per recorded txn).
+    /// Recorded planning-linked txn on its recorded date: forecast attribution and/or deferred-payment reference.
     @ViewBuilder
     private func forecastRealizedEventBlock(_ line: FinanceCalendarForecastRealizedLine, displayDayStart _: Date) -> some View {
         let txn = line.transaction
         let isIncome = txn.type == .income
         let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
         let transactionTitle = txn.name.isEmpty ? "Untitled" : txn.name
-        let forecastCaption: String? = {
+        let isDeferred = txn.deferredTo != nil
+        let planningCaption: String? = {
             guard let f = line.forecast, !f.name.isEmpty else { return nil }
             return f.name
+        }() ?? {
+            guard let commitment = line.deferredCommitment else { return nil }
+            let title = commitment.name.isEmpty ? "Untitled" : commitment.name
+            return "Deferred to \(title)"
         }()
-        let accent = Self.forecastRealizedAccent
+        let accent = isDeferred ? Self.deferredRecordedAccent : Self.forecastRealizedAccent
         let fill = accent.opacity(0.14)
 
         let card = HStack(alignment: .top, spacing: 0) {
@@ -498,12 +523,12 @@ package struct FinanceCalendarView: View {
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(isIncome ? "+\(formatPlainAmount(txn.amount))" : "−\(formatPlainAmount(txn.amount))")
+                Text(isIncome ? "+\(formatPlainAmount(line.amount))" : "−\(formatPlainAmount(line.amount))")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(amountColor)
 
-                if let forecastCaption {
-                    Text(forecastCaption)
+                if let planningCaption {
+                    Text(planningCaption)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -522,22 +547,38 @@ package struct FinanceCalendarView: View {
                 .strokeBorder(accent.opacity(0.28), lineWidth: 0.5)
         }
 
-        Button {
-            editingCalendarTransaction = txn
-        } label: {
-            card
+        ZStack(alignment: .bottomTrailing) {
+            Button {
+                editingCalendarTransaction = txn
+            } label: {
+                card
+            }
+            .buttonStyle(.plain)
+
+            if let deferredTo = txn.deferredTo {
+                Button {
+                    pendingScrollTarget = deferredTo.dueDate
+                } label: {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(accent, .white)
+                        .symbolRenderingMode(.palette)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .help("Go to payment on \(Self.shortDueFormatter.string(from: deferredTo.dueDate))")
+            }
         }
-        .buttonStyle(.plain)
     }
 
     private func recordCommitmentOccurrence(commitment: Commitment, dueDate: Date, recordedOn: Date) {
         let txn = FinancialTransaction(
-            commitmentID: commitment.id,
+            kind: .settlement,
+            settles: CommitmentOccurrenceRef(commitmentID: commitment.id, dueDate: dueDate),
             name: commitment.name,
-            amount: commitment.amount,
+            amount: viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: dueDate),
             type: commitment.type,
             date: recordedOn,
-            dueDate: dueDate,
             tags: commitment.tags
         )
         viewModel.addFinancialTransaction(txn)
@@ -613,6 +654,8 @@ package struct FinanceCalendarView: View {
     private static let futureUnpaidAccent = Color(red: 0.22, green: 0.52, blue: 0.86)
     /// Forecast-linked recorded txns (past)—distinct from commitment paid green.
     private static let forecastRealizedAccent = Color(red: 0.48, green: 0.40, blue: 0.72)
+    /// Warm amber to indicate "recorded, but payment is deferred elsewhere".
+    private static let deferredRecordedAccent = Color(red: 0.80, green: 0.61, blue: 0.20)
 
     private func formatAmount(_ amount: Double, positivePrefix: String) -> String {
         let formatter = NumberFormatter()

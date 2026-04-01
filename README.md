@@ -68,7 +68,7 @@ Add items from the **+** menu. Commitments and forecasts support income vs expen
 
 ### Transactions
 
-A month-scoped ledger of recorded cash flow. Add one-off or ad-hoc entries, or record amounts linked to a commitment occurrence or a forecast. Rows show whether a transaction is tied to planning (with the due occurrence date), and you can attach tags and notes.
+A month-scoped ledger of financial events. Add recorded spending or income, attribute recorded transactions to forecasts, defer them to later bill commitments, or log settlement transactions that clear commitment occurrences. Rows show those planning links directly, and you can attach tags and notes.
 
 ### Calendar
 
@@ -78,7 +78,7 @@ For an unpaid commitment on a day, use the **+** control on the card to **record
 
 ### Summary
 
-Pick a month to see **income, expenses, and net** for recorded transactions, **spending by tag** (expenses allocated across tags), and **forecast vs actual** bars comparing what recurring forecasts expected for that month to what you recorded against those forecasts.
+Pick a month to see **income, expenses, and net** for recorded transactions, **spending by tag** (expenses allocated across tags), and **forecast vs actual** bars comparing what recurring forecasts expected for that month to the recorded transactions you attributed to those forecasts. Settlement transactions do not double-count spending there.
 
 ## Save & Open
 

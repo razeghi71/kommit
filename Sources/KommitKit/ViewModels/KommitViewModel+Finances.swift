@@ -73,6 +73,20 @@ extension KommitViewModel {
         }.sorted { $0.date < $1.date }
     }
 
+    package func recordedTransactionsForMonth(month: Int, year: Int, calendar: Calendar = .current) -> [FinancialTransaction] {
+        transactionsForMonth(month: month, year: year, calendar: calendar)
+            .filter(\.isRecorded)
+    }
+
+    /// Cash-flow view of a month: direct recorded transactions plus settlements.
+    /// Deferred recorded transactions are excluded because their cash leaves on the later settlement date instead.
+    package func cashTransactionsForMonth(month: Int, year: Int, calendar: Calendar = .current) -> [FinancialTransaction] {
+        transactionsForMonth(month: month, year: year, calendar: calendar)
+            .filter { txn in
+                txn.isSettlement || (txn.isRecorded && txn.deferredTo == nil)
+            }
+    }
+
     package func activeCommitments(ofType type: FinancialFlowType) -> [Commitment] {
         commitments.values.filter { $0.type == type && $0.isActive }
             .sorted { $0.name < $1.name }
@@ -158,11 +172,28 @@ extension KommitViewModel {
             .map { (forecast: $0.item, date: $0.date) }
     }
 
-    /// Whether a recorded financial transaction already covers this commitment occurrence (same calendar day as `dueDate`).
+    package func expectedCommitmentAmount(
+        for commitmentID: UUID,
+        dueDate: Date,
+        calendar: Calendar = .current
+    ) -> Double {
+        return commitments[commitmentID]?.amount ?? 0
+    }
+
+    package func resolvedTransactionAmount(_ transaction: FinancialTransaction) -> Double {
+        if transaction.isRecorded,
+            let deferredTo = transaction.deferredTo,
+            let commitment = commitments[deferredTo.commitmentID] {
+            return commitment.amount
+        }
+        return transaction.amount
+    }
+
+    /// Whether a settlement transaction already covers this commitment occurrence.
     package func isCommitmentOccurrencePaid(commitmentID: UUID, dueDate: Date, calendar: Calendar = .current) -> Bool {
         financialTransactions.values.contains { txn in
-            guard txn.commitmentID == commitmentID, let txnDue = txn.dueDate else { return false }
-            return calendar.isDate(txnDue, inSameDayAs: dueDate)
+            guard txn.isSettlement, let settles = txn.settles else { return false }
+            return settles.commitmentID == commitmentID && calendar.isDate(settles.dueDate, inSameDayAs: dueDate)
         }
     }
 
@@ -195,22 +226,22 @@ extension KommitViewModel {
         }
     }
 
-    /// Recorded transaction for this commitment occurrence, if any (matched by `dueDate` calendar day).
+    /// Settlement transaction for this commitment occurrence, if any.
     package func financialTransactionCoveringCommitmentOccurrence(
         commitmentID: UUID,
         dueDate: Date,
         calendar: Calendar = .current
     ) -> FinancialTransaction? {
         financialTransactions.values.first { txn in
-            guard txn.commitmentID == commitmentID, let txnDue = txn.dueDate else { return false }
-            return calendar.isDate(txnDue, inSameDayAs: dueDate)
+            guard txn.isSettlement, let settles = txn.settles else { return false }
+            return settles.commitmentID == commitmentID && calendar.isDate(settles.dueDate, inSameDayAs: dueDate)
         }
     }
 
     package func monthlySummary(month: Int, year: Int, calendar: Calendar = .current) -> (income: Double, expenses: Double, net: Double) {
-        let transactions = transactionsForMonth(month: month, year: year, calendar: calendar)
-        let income = transactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
-        let expenses = transactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+        let transactions = cashTransactionsForMonth(month: month, year: year, calendar: calendar)
+        let income = transactions.filter { $0.type == .income }.reduce(0) { $0 + resolvedTransactionAmount($1) }
+        let expenses = transactions.filter { $0.type == .expense }.reduce(0) { $0 + resolvedTransactionAmount($1) }
         return (income: income, expenses: expenses, net: income - expenses)
     }
 
@@ -283,8 +314,14 @@ extension KommitViewModel {
         var changed = false
         for id in financialTransactions.keys {
             guard var txn = financialTransactions[id], txn.tags.isEmpty else { continue }
-            if let commitmentID = txn.commitmentID,
-                let commitment = commitments[commitmentID],
+            if let settles = txn.settles,
+                let commitment = commitments[settles.commitmentID],
+                !commitment.tags.isEmpty {
+                txn.tags = commitment.tags
+                financialTransactions[id] = txn
+                changed = true
+            } else if let deferredTo = txn.deferredTo,
+                let commitment = commitments[deferredTo.commitmentID],
                 !commitment.tags.isEmpty {
                 txn.tags = commitment.tags
                 financialTransactions[id] = txn
