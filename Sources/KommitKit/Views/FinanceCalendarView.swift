@@ -512,6 +512,7 @@ package struct FinanceCalendarView: View {
         let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
         let transactionTitle = txn.name.isEmpty ? "Untitled" : txn.name
         let isDeferred = txn.deferredTo != nil
+        let isStandalone = line.forecast == nil && line.deferredCommitment == nil
         let planningCaption: String? = {
             guard let f = line.forecast, !f.name.isEmpty else { return nil }
             return f.name
@@ -520,7 +521,10 @@ package struct FinanceCalendarView: View {
             let title = commitment.name.isEmpty ? "Untitled" : commitment.name
             return "Deferred to \(title)"
         }()
-        let accent = isDeferred ? Self.deferredRecordedAccent : Self.forecastRealizedAccent
+        let accent: Color = {
+            if isStandalone { return Self.standaloneRecordedAccent }
+            return isDeferred ? Self.deferredRecordedAccent : Self.forecastRealizedAccent
+        }()
         let fill = accent.opacity(0.14)
 
         let card = HStack(alignment: .top, spacing: 0) {
@@ -668,6 +672,8 @@ package struct FinanceCalendarView: View {
     private static let forecastRealizedAccent = Color(red: 0.48, green: 0.40, blue: 0.72)
     /// Warm amber to indicate "recorded, but payment is deferred elsewhere".
     private static let deferredRecordedAccent = Color(red: 0.80, green: 0.61, blue: 0.20)
+    /// Muted slate—recorded cash flow not tied to a forecast or bill.
+    private static let standaloneRecordedAccent = Color(red: 0.38, green: 0.46, blue: 0.54)
 
     private func formatAmount(_ amount: Double, positivePrefix: String) -> String {
         let formatter = NumberFormatter()

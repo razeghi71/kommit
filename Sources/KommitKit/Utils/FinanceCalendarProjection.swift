@@ -45,7 +45,7 @@ package struct FinanceCalendarForecastLine: Identifiable, Equatable {
     }
 }
 
-/// A calendar day entry from a recorded transaction attributed to a forecast (actual amount, one row per txn).
+/// A calendar day entry from a recorded transaction: forecast-linked, deferred to a commitment, or standalone (neither).
 package struct FinanceCalendarForecastRealizedLine: Identifiable, Equatable {
     package var id: UUID { transaction.id }
     package let transaction: FinancialTransaction
@@ -218,7 +218,9 @@ package enum FinanceCalendarProjection {
         }
 
         for txn in recordedTransactions {
-            guard txn.forecastID != nil || txn.deferredTo != nil else { continue }
+            let linkedToPlanning = txn.forecastID != nil || txn.deferredTo != nil
+            let standaloneRecorded = txn.forecastID == nil && txn.deferredTo == nil && txn.settles == nil
+            guard linkedToPlanning || standaloneRecorded else { continue }
             let day = calendar.startOfDay(for: txn.date)
             guard day >= windowStart, day <= windowEnd else { continue }
             let forecast = txn.forecastID.flatMap { forecastsByID[$0] }
