@@ -127,7 +127,7 @@ struct CommitmentEditorView: View {
         CommitmentDraftBaseline(
             name: name.trimmingCharacters(in: .whitespaces),
             type: type,
-            amount: Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0,
+            amount: FinancialCurrencyFormatting.parseDecimalInput(amount) ?? 0,
             tags: tags,
             isActive: isActive,
             eventDate: eventDate,
@@ -358,7 +358,7 @@ struct CommitmentEditorView: View {
         if let existing = commitment {
             name = existing.name
             type = existing.type
-            amount = String(format: "%.2f", existing.amount)
+            amount = FinancialCurrencyFormatting.editorAmountString(existing.amount)
             tags = existing.tags
             isActive = existing.isActive
             eventDate = existing.createdAt
@@ -376,7 +376,7 @@ struct CommitmentEditorView: View {
         } else if let seed {
             name = seed.name
             type = seed.type
-            amount = String(format: "%.2f", seed.amount)
+            amount = FinancialCurrencyFormatting.editorAmountString(seed.amount)
             tags = seed.tags
             isActive = true
             eventDate = seed.eventDate
@@ -387,7 +387,7 @@ struct CommitmentEditorView: View {
     }
 
     private func save() {
-        let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
+        let amountValue = FinancialCurrencyFormatting.parseDecimalInput(amount) ?? 0
         var recurrence = allowsRecurrence ? buildRecurrence() : nil
         recurrence?.startDate = eventDate
 

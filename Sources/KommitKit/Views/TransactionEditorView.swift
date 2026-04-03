@@ -88,7 +88,7 @@ struct TransactionEditorView: View {
     }
 
     private var amountValue: Double {
-        Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
+        FinancialCurrencyFormatting.parseDecimalInput(amount) ?? 0
     }
 
     private var savedKind: FinancialTransactionKind {
@@ -527,7 +527,9 @@ struct TransactionEditorView: View {
                 name = commitment.name
                 type = commitment.type
                 tags = commitment.tags
-                amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due))
+            amount = FinancialCurrencyFormatting.editorAmountString(
+                viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due)
+            )
             }
         }
     }
@@ -537,7 +539,7 @@ struct TransactionEditorView: View {
         if !isEditing {
             name = forecast.name
             type = forecast.type
-            amount = String(format: "%.2f", forecast.amount)
+            amount = FinancialCurrencyFormatting.editorAmountString(forecast.amount)
             tags = forecast.tags
         }
     }
@@ -583,7 +585,7 @@ struct TransactionEditorView: View {
             planningMode = planningMode(for: txn)
             name = txn.name
             type = txn.type
-            amount = String(format: "%.2f", viewModel.resolvedTransactionAmount(txn))
+            amount = FinancialCurrencyFormatting.editorAmountString(viewModel.resolvedTransactionAmount(txn))
             date = txn.date
             tags = txn.tags
             note = txn.note ?? ""
@@ -615,7 +617,9 @@ struct TransactionEditorView: View {
                 settlementDueDate = due
                 name = commitment.name
                 type = commitment.type
-                amount = String(format: "%.2f", viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due))
+                amount = FinancialCurrencyFormatting.editorAmountString(
+                    viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due)
+                )
                 tags = commitment.tags
             }
         } else if let prefilledForecastID {

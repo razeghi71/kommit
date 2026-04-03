@@ -172,13 +172,6 @@ extension KommitBoardSettings: Codable {
     }
 }
 
-/// Decode-only shape for `settings` objects that may still contain a nested starting balance from older saves.
-private struct KommitBoardSettingsLegacyDecode: Codable {
-    var statusPalette: [KommitStatusDefinition]?
-    var preferredCurrencyCode: String?
-    var financeCalendarStartingBalance: Double?
-}
-
 struct KommitDocument: Codable {
     var format: Int
     var nodes: [KommitNode]
@@ -197,7 +190,6 @@ struct KommitDocument: Codable {
         case forecasts
         case financialTransactions
         case financeCalendarStartingBalance
-        case preferredCurrencyCode
     }
 
     init(
@@ -225,20 +217,8 @@ struct KommitDocument: Codable {
         commitments = try container.decodeIfPresent([Commitment].self, forKey: .commitments)
         forecasts = try container.decodeIfPresent([Forecast].self, forKey: .forecasts)
         financialTransactions = try container.decodeIfPresent([FinancialTransaction].self, forKey: .financialTransactions)
-
-        let legacyFileShape = try container.decodeIfPresent(KommitBoardSettingsLegacyDecode.self, forKey: .settings)
-        let topLevelBalance = try container.decodeIfPresent(Double.self, forKey: .financeCalendarStartingBalance)
-        let topLevelCurrency = try container.decodeIfPresent(String.self, forKey: .preferredCurrencyCode)
-
-        financeCalendarStartingBalance = topLevelBalance ?? legacyFileShape?.financeCalendarStartingBalance
-
-        let currency = legacyFileShape?.preferredCurrencyCode ?? topLevelCurrency
-        let palette = legacyFileShape?.statusPalette
-        if palette != nil || currency != nil {
-            settings = KommitBoardSettings(statusPalette: palette, preferredCurrencyCode: currency)
-        } else {
-            settings = nil
-        }
+        settings = try container.decodeIfPresent(KommitBoardSettings.self, forKey: .settings)
+        financeCalendarStartingBalance = try container.decodeIfPresent(Double.self, forKey: .financeCalendarStartingBalance)
     }
 
     func encode(to encoder: Encoder) throws {

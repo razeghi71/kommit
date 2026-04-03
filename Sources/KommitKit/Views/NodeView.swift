@@ -510,8 +510,10 @@ struct NodeView: View {
         let trimmed = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let normalized = trimmed.replacingOccurrences(of: ",", with: "")
-        guard let value = Double(normalized), value.isFinite, value >= 0 else { return nil }
+        guard let value = FinancialCurrencyFormatting.parseDecimalInput(trimmed),
+            value.isFinite,
+            value >= 0
+        else { return nil }
         return value
     }
 

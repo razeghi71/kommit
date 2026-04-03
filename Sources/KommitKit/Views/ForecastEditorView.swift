@@ -93,7 +93,7 @@ struct ForecastEditorView: View {
         CommitmentDraftBaseline(
             name: name.trimmingCharacters(in: .whitespaces),
             type: type,
-            amount: Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0,
+            amount: FinancialCurrencyFormatting.parseDecimalInput(amount) ?? 0,
             tags: tags,
             isActive: isActive,
             eventDate: eventDate,
@@ -313,7 +313,7 @@ struct ForecastEditorView: View {
         if let existing = forecast {
             name = existing.name
             type = existing.type
-            amount = String(format: "%.2f", existing.amount)
+            amount = FinancialCurrencyFormatting.editorAmountString(existing.amount)
             tags = existing.tags
             isActive = existing.isActive
             eventDate = existing.createdAt
@@ -328,7 +328,7 @@ struct ForecastEditorView: View {
     }
 
     private func save() {
-        let amountValue = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
+        let amountValue = FinancialCurrencyFormatting.parseDecimalInput(amount) ?? 0
         var recurrence = buildRecurrence()
         recurrence?.startDate = eventDate
 

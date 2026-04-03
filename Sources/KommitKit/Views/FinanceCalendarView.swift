@@ -800,8 +800,7 @@ private struct FinanceCalendarStartingBalanceBar: View {
                 .frame(width: 148, alignment: .leading)
                 .multilineTextAlignment(.leading)
             Button("Apply") {
-                let trimmed = draftText.replacingOccurrences(of: ",", with: "")
-                onApply(Double(trimmed) ?? 0)
+                onApply(FinancialCurrencyFormatting.parseDecimalInput(draftText) ?? 0)
             }
             .buttonStyle(.borderedProminent)
         }

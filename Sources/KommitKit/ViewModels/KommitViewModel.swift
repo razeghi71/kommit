@@ -687,7 +687,8 @@ package final class KommitViewModel: ObservableObject {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = code
-        formatter.locale = FinancialCurrencyFormatting.localeForCurrencyDisplay(isoCode: code)
+        formatter.locale = .current
+        formatter.currencySymbol = FinancialCurrencyFormatting.displaySymbol(for: code, locale: formatter.locale)
         formatter.maximumFractionDigits = 2
         formatter.minimumFractionDigits = 0
         financialCurrencyFormatterCacheCode = code
