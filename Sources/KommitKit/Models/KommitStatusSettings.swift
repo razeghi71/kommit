@@ -52,13 +52,6 @@ struct KommitStatusSettings: Codable, Equatable {
         return statusPalette.contains(where: { $0.id == id })
     }
 
-    func matchingStatusID(forLegacyColorHex hex: String) -> UUID? {
-        let normalized = Self.normalizedHex(hex)
-        return selectableStatuses.first(where: {
-            Self.normalizedHex($0.colorHex) == normalized
-        })?.id
-    }
-
     func nextStatusName() -> String {
         let existing = Set(statusPalette.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
         var index = 1
@@ -83,20 +76,6 @@ struct KommitStatusSettings: Codable, Equatable {
             value.removeFirst()
         }
         return value.uppercased()
-    }
-
-    static func legacyFallbackName(for hex: String) -> String {
-        switch normalizedHex(hex) {
-        case normalizedHex(defaultValue.statusPalette[1].colorHex): return defaultValue.statusPalette[1].name
-        case normalizedHex(defaultValue.statusPalette[2].colorHex): return defaultValue.statusPalette[2].name
-        case "FF9F1A": return "Orange"
-        case "EB5A46": return "Red"
-        case "0079BF": return "Blue"
-        case "FF2F92": return "Pink"
-        default:
-            let prefix = String(normalizedHex(hex).prefix(6))
-            return prefix.isEmpty ? "Custom Status" : "Status \(prefix)"
-        }
     }
 
     private static func sanitizedPalette(_ palette: [KommitStatusDefinition]) -> [KommitStatusDefinition] {

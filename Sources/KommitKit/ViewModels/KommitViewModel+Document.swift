@@ -55,100 +55,25 @@ extension KommitViewModel {
         let preferredCurrencyCode: String?
     }
 
-    private struct MigratedNodes {
-        let nodes: [KommitNode]
-        let fileStatusSettings: KommitStatusSettings?
-    }
-
     private func decodeBoard(from data: Data) -> DecodedBoard? {
         let decoder = JSONDecoder()
-
-        if let document = try? decoder.decode(KommitDocument.self, from: data) {
-            let explicitFileSettings = document.settings?.statusPalette.map { KommitStatusSettings(statusPalette: $0) }
-            let migrated = migrateLoadedNodes(document.nodes, baseSettings: explicitFileSettings ?? systemStatusSettings)
-            return DecodedBoard(
-                nodes: migrated.nodes,
-                fileStatusSettings: migrated.fileStatusSettings ?? explicitFileSettings,
-                commitments: document.commitments,
-                forecasts: document.forecasts,
-                financialTransactions: document.financialTransactions,
-                financeCalendarStartingBalance: document.financeCalendarStartingBalance,
-                preferredCurrencyCode: document.settings?.preferredCurrencyCode
-            )
+        guard let document = try? decoder.decode(KommitDocument.self, from: data) else { return nil }
+        let explicitFileSettings = document.settings?.statusPalette.map { KommitStatusSettings(statusPalette: $0) }
+        let baseSettings = explicitFileSettings ?? systemStatusSettings
+        let loadedNodes = document.nodes.map { node in
+            var n = node
+            n.statusID = normalizedStatusID(node.statusID, settings: baseSettings)
+            return n
         }
-
-        guard let legacyNodes = try? decoder.decode([KommitNode].self, from: data) else { return nil }
-        let migrated = migrateLoadedNodes(legacyNodes, baseSettings: systemStatusSettings)
         return DecodedBoard(
-            nodes: migrated.nodes,
-            fileStatusSettings: migrated.fileStatusSettings,
-            commitments: nil,
-            forecasts: nil,
-            financialTransactions: nil,
-            financeCalendarStartingBalance: nil,
-            preferredCurrencyCode: nil
+            nodes: loadedNodes,
+            fileStatusSettings: explicitFileSettings,
+            commitments: document.commitments,
+            forecasts: document.forecasts,
+            financialTransactions: document.financialTransactions,
+            financeCalendarStartingBalance: document.financeCalendarStartingBalance,
+            preferredCurrencyCode: document.settings?.preferredCurrencyCode
         )
-    }
-
-    private func migrateLoadedNodes(_ loadedNodes: [KommitNode], baseSettings: KommitStatusSettings) -> MigratedNodes {
-        var migratedNodes: [KommitNode] = []
-        migratedNodes.reserveCapacity(loadedNodes.count)
-
-        var resolvedSettings = baseSettings
-        var customStatusesByHex: [String: UUID] = [:]
-        var createdFileSettings = false
-
-        for node in loadedNodes {
-            var updated = node
-            let legacyHex = KommitStatusSettings.normalizedHex(node.legacyColorHex)
-
-            if !legacyHex.isEmpty {
-                if let existingStatusID = resolvedSettings.matchingStatusID(forLegacyColorHex: legacyHex) {
-                    updated.statusID = normalizedStatusID(existingStatusID, settings: resolvedSettings)
-                } else {
-                    if let reusedStatusID = customStatusesByHex[legacyHex] {
-                        updated.statusID = reusedStatusID
-                    } else {
-                        createdFileSettings = true
-                        let newStatus = KommitStatusDefinition(
-                            id: UUID(),
-                            name: makeUniqueStatusName(
-                                baseName: KommitStatusSettings.legacyFallbackName(for: legacyHex),
-                                existingSettings: resolvedSettings
-                            ),
-                            colorHex: legacyHex
-                        )
-                        resolvedSettings.statusPalette.append(newStatus)
-                        resolvedSettings = KommitStatusSettings(statusPalette: resolvedSettings.statusPalette)
-                        customStatusesByHex[legacyHex] = newStatus.id
-                        updated.statusID = newStatus.id
-                    }
-                }
-            } else {
-                updated.statusID = normalizedStatusID(node.statusID, settings: resolvedSettings)
-            }
-
-            updated.legacyColorHex = nil
-            migratedNodes.append(updated)
-        }
-
-        return MigratedNodes(
-            nodes: migratedNodes,
-            fileStatusSettings: createdFileSettings ? resolvedSettings : nil
-        )
-    }
-
-    private func makeUniqueStatusName(baseName: String, existingSettings: KommitStatusSettings) -> String {
-        let existing = Set(existingSettings.statusPalette.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
-        let trimmedBase = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = trimmedBase.isEmpty ? "Custom Status" : trimmedBase
-        guard existing.contains(fallback.lowercased()) else { return fallback }
-
-        var suffix = 2
-        while existing.contains("\(fallback) \(suffix)".lowercased()) {
-            suffix += 1
-        }
-        return "\(fallback) \(suffix)"
     }
     // MARK: - Unsaved changes guard
 

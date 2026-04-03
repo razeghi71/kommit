@@ -479,7 +479,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
         case amount
         case recurrence
         case tags
-        case category
         case isActive
         case createdAt
     }
@@ -494,12 +493,7 @@ package struct Commitment: Identifiable, Codable, Equatable {
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
 
-        if let decodedTags = try container.decodeIfPresent([String].self, forKey: .tags) {
-            tags = Self.normalizedTags(from: decodedTags)
-        } else {
-            let legacyCategory = try container.decodeIfPresent(String.self, forKey: .category)
-            tags = Self.normalizedTags(from: legacyCategory.map { [$0] } ?? [])
-        }
+        tags = Self.normalizedTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
     }
 
     package func encode(to encoder: any Encoder) throws {
@@ -580,7 +574,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
         case amount
         case recurrence
         case tags
-        case category
         case isActive
         case createdAt
     }
@@ -595,12 +588,7 @@ package struct Forecast: Identifiable, Codable, Equatable {
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
 
-        if let decodedTags = try container.decodeIfPresent([String].self, forKey: .tags) {
-            tags = FinancialModels.normalizedFinancialTags(from: decodedTags)
-        } else {
-            let legacyCategory = try container.decodeIfPresent(String.self, forKey: .category)
-            tags = FinancialModels.normalizedFinancialTags(from: legacyCategory.map { [$0] } ?? [])
-        }
+        tags = FinancialModels.normalizedFinancialTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
     }
 
     package func encode(to encoder: any Encoder) throws {

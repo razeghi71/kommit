@@ -360,7 +360,6 @@ package final class KommitViewModel: ObservableObject {
     func setNodeStatus(_ id: UUID, statusID: UUID?) {
         saveSnapshot()
         nodes[id]?.statusID = normalizedStatusID(statusID, settings: activeStatusSettings)
-        nodes[id]?.legacyColorHex = nil
     }
 
     func setNodeStatuses(_ ids: Set<UUID>, statusID: UUID?) {
@@ -368,7 +367,6 @@ package final class KommitViewModel: ObservableObject {
         saveSnapshot()
         for id in ids {
             nodes[id]?.statusID = normalizedStatusID(statusID, settings: activeStatusSettings)
-            nodes[id]?.legacyColorHex = nil
         }
     }
 
@@ -639,13 +637,11 @@ package final class KommitViewModel: ObservableObject {
         let validIDs = Set(activeStatusSettings.statusPalette.map(\.id))
         for id in nodes.keys {
             guard let statusID = nodes[id]?.statusID else {
-                nodes[id]?.legacyColorHex = nil
                 continue
             }
             if !validIDs.contains(statusID) || statusID == KommitStatusSettings.noneStatusID {
                 nodes[id]?.statusID = nil
             }
-            nodes[id]?.legacyColorHex = nil
         }
     }
 

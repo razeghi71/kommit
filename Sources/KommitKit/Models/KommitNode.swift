@@ -10,7 +10,6 @@ struct KommitNode: Identifiable, Equatable, Codable {
     var position: CGPoint
     var parentIDs: Set<UUID>
     var statusID: UUID?
-    var legacyColorHex: String?
     var plannedDate: Date?
     var budget: Double?
     var isHidden: Bool
@@ -21,7 +20,6 @@ struct KommitNode: Identifiable, Equatable, Codable {
         position: CGPoint,
         parentIDs: Set<UUID> = [],
         statusID: UUID? = nil,
-        legacyColorHex: String? = nil,
         plannedDate: Date? = nil,
         budget: Double? = nil,
         isHidden: Bool = false
@@ -31,7 +29,6 @@ struct KommitNode: Identifiable, Equatable, Codable {
         self.position = position
         self.parentIDs = parentIDs
         self.statusID = statusID
-        self.legacyColorHex = legacyColorHex
         self.plannedDate = plannedDate
         self.budget = budget
         self.isHidden = isHidden
@@ -43,7 +40,6 @@ struct KommitNode: Identifiable, Equatable, Codable {
         case position
         case parentIDs
         case statusID
-        case legacyColorHex = "colorHex"
         case plannedDate
         case budget
         case isHidden
@@ -56,7 +52,6 @@ struct KommitNode: Identifiable, Equatable, Codable {
         position = try container.decode(CGPoint.self, forKey: .position)
         parentIDs = try container.decode(Set<UUID>.self, forKey: .parentIDs)
         statusID = try container.decodeIfPresent(UUID.self, forKey: .statusID)
-        legacyColorHex = try container.decodeIfPresent(String.self, forKey: .legacyColorHex)
         plannedDate = try container.decodeIfPresent(Date.self, forKey: .plannedDate)
         budget = try container.decodeIfPresent(Double.self, forKey: .budget)
         isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
