@@ -296,14 +296,14 @@ package struct FinanceCalendarView: View {
 
                 // Expand to fill height below the scroll so the negative-balance fill isn’t shorter than the column.
                 VStack(alignment: .leading, spacing: 9) {
-                    Text(formatAmount(column.endOfDayBalance, positivePrefix: ""))
+                    Text(viewModel.formatFinancialCurrency(column.endOfDayBalance))
                         .font(.system(size: 17, weight: .semibold, design: .monospaced))
                         .foregroundStyle(isNegativeEndBalance ? Self.harmonizedExpenseRed : Color.primary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("In \(formatAmount(totalIn, positivePrefix: "+"))")
+                        Text("In \(formatCalendarFlowAmount(totalIn, leadingPlusWhenPositive: true))")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
-                        Text("Out \(formatAmount(totalOut, positivePrefix: ""))")
+                        Text("Out \(formatCalendarFlowAmount(totalOut, leadingPlusWhenPositive: false))")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                         if isToday, column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
@@ -363,12 +363,12 @@ package struct FinanceCalendarView: View {
     private func overdueStartCaption(column: FinanceCalendarDayColumn) -> some View {
         Group {
             if column.overdueUnpaidExpenseTotal > 0 {
-                Text("Overdue out \(formatAmount(-column.overdueUnpaidExpenseTotal, positivePrefix: ""))")
+                Text("Overdue out \(viewModel.formatFinancialCurrency(-column.overdueUnpaidExpenseTotal))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
             if column.overdueUnpaidIncomeTotal > 0 {
-                Text("Overdue in \(formatAmount(column.overdueUnpaidIncomeTotal, positivePrefix: "+"))")
+                Text("Overdue in \(formatCalendarFlowAmount(column.overdueUnpaidIncomeTotal, leadingPlusWhenPositive: true))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -410,7 +410,7 @@ package struct FinanceCalendarView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.trailing, trailingPadding)
 
-                    Text(isIncome ? "+\(formatPlainAmount(line.amount))" : "−\(formatPlainAmount(line.amount))")
+                    Text(isIncome ? "+\(viewModel.formatFinancialCurrencyUnsigned(line.amount))" : "−\(viewModel.formatFinancialCurrencyUnsigned(line.amount))")
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(amountColor)
 
@@ -456,8 +456,8 @@ package struct FinanceCalendarView: View {
         let isIncome = forecast.type == .income
         let amountColor: Color = isIncome ? Self.harmonizedIncomeGreen : Self.harmonizedExpenseRed
         let amountText = isIncome
-            ? "+\(formatPlainAmount(forecast.amount))"
-            : "−\(formatPlainAmount(forecast.amount))"
+            ? "+\(viewModel.formatFinancialCurrencyUnsigned(forecast.amount))"
+            : "−\(viewModel.formatFinancialCurrencyUnsigned(forecast.amount))"
         let title = forecast.name.isEmpty ? "Untitled" : forecast.name
         let occ = line.occurrenceDate
         let showAltDay = !cal.isDate(occ, inSameDayAs: displayDayStart)
@@ -539,7 +539,7 @@ package struct FinanceCalendarView: View {
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(isIncome ? "+\(formatPlainAmount(line.amount))" : "−\(formatPlainAmount(line.amount))")
+                Text(isIncome ? "+\(viewModel.formatFinancialCurrencyUnsigned(line.amount))" : "−\(viewModel.formatFinancialCurrencyUnsigned(line.amount))")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(amountColor)
 
@@ -675,30 +675,14 @@ package struct FinanceCalendarView: View {
     /// Muted slate—recorded cash flow not tied to a forecast or bill.
     private static let standaloneRecordedAccent = Color(red: 0.38, green: 0.46, blue: 0.54)
 
-    private func formatAmount(_ amount: Double, positivePrefix: String) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        let core = formatter.string(from: NSNumber(value: abs(amount))) ?? "\(abs(amount))"
-        let prefix: String
+    private func formatCalendarFlowAmount(_ amount: Double, leadingPlusWhenPositive: Bool) -> String {
         if amount < 0 {
-            prefix = "-$"
-        } else if positivePrefix == "+" && amount > 0 {
-            prefix = "+$"
-        } else {
-            prefix = "$"
+            return viewModel.formatFinancialCurrency(amount)
         }
-        return prefix + core
-    }
-
-    private func formatPlainAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        let core = formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
-        return "$" + core
+        if leadingPlusWhenPositive, amount > 0 {
+            return "+" + viewModel.formatFinancialCurrencyUnsigned(amount)
+        }
+        return viewModel.formatFinancialCurrencyUnsigned(amount)
     }
 
     private static let weekdayFormatter: DateFormatter = {

@@ -115,6 +115,7 @@ struct FinancialPlanningListView: View {
             ForEach(sortedCommitments) { entry in
                 CommitmentRow(
                     commitment: entry,
+                    viewModel: viewModel,
                     onEdit: { editingCommitment = entry },
                     onDelete: {
                         viewModel.deleteCommitment(entry.id)
@@ -134,6 +135,7 @@ struct FinancialPlanningListView: View {
             ForEach(sortedForecasts) { entry in
                 ForecastRow(
                     forecast: entry,
+                    viewModel: viewModel,
                     onEdit: { editingForecast = entry },
                     onDelete: {
                         viewModel.deleteForecast(entry.id)
@@ -175,6 +177,7 @@ struct FinancialPlanningListView: View {
 
 struct CommitmentRow: View {
     let commitment: Commitment
+    @ObservedObject var viewModel: KommitViewModel
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -201,7 +204,7 @@ struct CommitmentRow: View {
 
             Spacer()
 
-            Text(commitment.type == .income ? "+\(formatAmount(commitment.amount))" : "-\(formatAmount(commitment.amount))")
+            Text(commitment.type == .income ? "+\(viewModel.formatFinancialCurrencyUnsigned(commitment.amount))" : "-\(viewModel.formatFinancialCurrencyUnsigned(commitment.amount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundStyle(commitment.type == .income ? .green : .primary)
 
@@ -223,18 +226,11 @@ struct CommitmentRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
-    }
 }
 
 struct ForecastRow: View {
     let forecast: Forecast
+    @ObservedObject var viewModel: KommitViewModel
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -261,7 +257,7 @@ struct ForecastRow: View {
 
             Spacer()
 
-            Text(forecast.type == .income ? "+\(formatAmount(forecast.amount))" : "-\(formatAmount(forecast.amount))")
+            Text(forecast.type == .income ? "+\(viewModel.formatFinancialCurrencyUnsigned(forecast.amount))" : "-\(viewModel.formatFinancialCurrencyUnsigned(forecast.amount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundStyle(forecast.type == .income ? .green : .primary)
 
@@ -282,13 +278,5 @@ struct ForecastRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-    }
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
     }
 }

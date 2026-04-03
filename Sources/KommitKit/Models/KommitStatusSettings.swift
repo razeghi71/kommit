@@ -134,31 +134,125 @@ struct KommitStatusSettings: Codable, Equatable {
     }
 }
 
+// MARK: - Per-document board settings (JSON `settings` object)
+
+/// Board-level **preferences** saved under JSON `settings` (status palette and currency only).
+struct KommitBoardSettings: Equatable {
+    /// When set, overrides the app default status palette for this board only.
+    var statusPalette: [KommitStatusDefinition]?
+    /// ISO 4217 code when this board overrides the app default currency.
+    var preferredCurrencyCode: String?
+
+    init(statusPalette: [KommitStatusDefinition]? = nil, preferredCurrencyCode: String? = nil) {
+        self.statusPalette = statusPalette
+        self.preferredCurrencyCode = preferredCurrencyCode
+    }
+
+    var hasAnyValue: Bool {
+        statusPalette != nil || preferredCurrencyCode != nil
+    }
+}
+
+extension KommitBoardSettings: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case statusPalette
+        case preferredCurrencyCode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        statusPalette = try container.decodeIfPresent([KommitStatusDefinition].self, forKey: .statusPalette)
+        preferredCurrencyCode = try container.decodeIfPresent(String.self, forKey: .preferredCurrencyCode)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(statusPalette, forKey: .statusPalette)
+        try container.encodeIfPresent(preferredCurrencyCode, forKey: .preferredCurrencyCode)
+    }
+}
+
+/// Decode-only shape for `settings` objects that may still contain a nested starting balance from older saves.
+private struct KommitBoardSettingsLegacyDecode: Codable {
+    var statusPalette: [KommitStatusDefinition]?
+    var preferredCurrencyCode: String?
+    var financeCalendarStartingBalance: Double?
+}
+
 struct KommitDocument: Codable {
     var format: Int
     var nodes: [KommitNode]
-    var settings: KommitStatusSettings?
+    var settings: KommitBoardSettings?
     var commitments: [Commitment]?
     var forecasts: [Forecast]?
     var financialTransactions: [FinancialTransaction]?
-    /// Cash balance at the start of “today” for the finance calendar projection; omitted when zero.
+    /// Document data for the finance calendar (not a board “setting”); omitted when zero.
     var financeCalendarStartingBalance: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case format
+        case nodes
+        case settings
+        case commitments
+        case forecasts
+        case financialTransactions
+        case financeCalendarStartingBalance
+        case preferredCurrencyCode
+    }
 
     init(
         format: Int = 4,
         nodes: [KommitNode],
-        settings: KommitStatusSettings?,
+        settings: KommitBoardSettings?,
+        financeCalendarStartingBalance: Double? = nil,
         commitments: [Commitment]? = nil,
         forecasts: [Forecast]? = nil,
-        financialTransactions: [FinancialTransaction]? = nil,
-        financeCalendarStartingBalance: Double? = nil
+        financialTransactions: [FinancialTransaction]? = nil
     ) {
         self.format = format
         self.nodes = nodes
         self.settings = settings
+        self.financeCalendarStartingBalance = financeCalendarStartingBalance
         self.commitments = commitments
         self.forecasts = forecasts
         self.financialTransactions = financialTransactions
-        self.financeCalendarStartingBalance = financeCalendarStartingBalance
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = try container.decode(Int.self, forKey: .format)
+        nodes = try container.decode([KommitNode].self, forKey: .nodes)
+        commitments = try container.decodeIfPresent([Commitment].self, forKey: .commitments)
+        forecasts = try container.decodeIfPresent([Forecast].self, forKey: .forecasts)
+        financialTransactions = try container.decodeIfPresent([FinancialTransaction].self, forKey: .financialTransactions)
+
+        let legacyFileShape = try container.decodeIfPresent(KommitBoardSettingsLegacyDecode.self, forKey: .settings)
+        let topLevelBalance = try container.decodeIfPresent(Double.self, forKey: .financeCalendarStartingBalance)
+        let topLevelCurrency = try container.decodeIfPresent(String.self, forKey: .preferredCurrencyCode)
+
+        financeCalendarStartingBalance = topLevelBalance ?? legacyFileShape?.financeCalendarStartingBalance
+
+        let currency = legacyFileShape?.preferredCurrencyCode ?? topLevelCurrency
+        let palette = legacyFileShape?.statusPalette
+        if palette != nil || currency != nil {
+            settings = KommitBoardSettings(statusPalette: palette, preferredCurrencyCode: currency)
+        } else {
+            settings = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(format, forKey: .format)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encodeIfPresent(commitments, forKey: .commitments)
+        try container.encodeIfPresent(forecasts, forKey: .forecasts)
+        try container.encodeIfPresent(financialTransactions, forKey: .financialTransactions)
+        if let settings, settings.hasAnyValue {
+            try container.encode(settings, forKey: .settings)
+        }
+        if let balance = financeCalendarStartingBalance, balance != 0 {
+            try container.encode(balance, forKey: .financeCalendarStartingBalance)
+        }
     }
 }

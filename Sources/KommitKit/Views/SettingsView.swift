@@ -27,6 +27,7 @@ package struct SettingsView: View {
     @AppStorage(FinancialPlanningUserDefaultsKey.hideFullyPaidCommitments) private var hideFullyPaidCommitments = true
     @State private var selectedSection: SettingsSidebarSection = .tasks
     @State private var editorScope: KommitViewModel.StatusSettingsScope = .system
+    @State private var financialCurrencyScope: KommitViewModel.StatusSettingsScope = .system
 
     package init(viewModel: KommitViewModel) {
         self.viewModel = viewModel
@@ -67,9 +68,13 @@ package struct SettingsView: View {
         }
         .frame(minWidth: 720, minHeight: 520)
         .background(AppColors.canvasBackgroundSwiftUI)
-        .onAppear(perform: syncEditorScopeWithModel)
+        .onAppear {
+            syncEditorScopeWithModel()
+            syncFinancialCurrencyScopeWithModel()
+        }
         .onChange(of: viewModel.fileLoadID) { _, _ in
             syncEditorScopeWithModel()
+            syncFinancialCurrencyScopeWithModel()
         }
     }
 
@@ -189,11 +194,45 @@ package struct SettingsView: View {
         }
     }
 
+    private var currentFinancialCurrencyScope: KommitViewModel.StatusSettingsScope {
+        viewModel.hasFileCurrencyOverride ? financialCurrencyScope : .system
+    }
+
+    private var financialCurrencyPickerSelection: Binding<String> {
+        Binding(
+            get: {
+                switch currentFinancialCurrencyScope {
+                case .file:
+                    return viewModel.filePreferredCurrencyCode ?? viewModel.systemPreferredCurrencyCode
+                case .system:
+                    return viewModel.systemPreferredCurrencyCode
+                }
+            },
+            set: { newValue in
+                switch currentFinancialCurrencyScope {
+                case .file:
+                    viewModel.updateFilePreferredCurrencyCode(newValue)
+                case .system:
+                    viewModel.updateSystemPreferredCurrencyCode(newValue)
+                }
+            }
+        )
+    }
+
     private var financialPlaceholderPane: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Financial")
-                    .font(.title2.weight(.semibold))
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Financial")
+                        .font(.title2.weight(.semibold))
+                    Text("Amounts in calendars, summaries, and lists follow one currency at a time.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                financialCurrencyHeader
+                financialCurrencyEditorSection
 
                 GroupBox("Financial planning") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -212,6 +251,140 @@ package struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var financialCurrencyHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(financialCurrencySourceTitle)
+                    .font(.headline)
+                Text(financialCurrencySourceDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if viewModel.hasFileCurrencyOverride {
+                HStack(spacing: 12) {
+                    Picker("Editing", selection: $financialCurrencyScope) {
+                        Text("Current Board").tag(KommitViewModel.StatusSettingsScope.file)
+                        Text("System Defaults").tag(KommitViewModel.StatusSettingsScope.system)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 320)
+
+                    Button("Use System Default Currency", role: .destructive) {
+                        confirmRevertFinancialCurrencyToSystem()
+                    }
+                }
+            } else if viewModel.hasOpenBoardContext {
+                Button("Customize Currency for This Board") {
+                    viewModel.addFileCurrencyOverride()
+                    financialCurrencyScope = .file
+                }
+            } else {
+                Text("Open or create a board to set a currency that is saved only in that file.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var financialCurrencyEditorSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(financialCurrencySectionTitle(for: currentFinancialCurrencyScope))
+                .font(.headline)
+
+            Text(financialCurrencySectionDescription(for: currentFinancialCurrencyScope))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Picker("Currency", selection: financialCurrencyPickerSelection) {
+                ForEach(FinancialCurrencyFormatting.sortedISOCurrencyCodes, id: \.self) { code in
+                    Text(Self.currencyMenuLabel(for: code)).tag(code)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 420, alignment: .leading)
+
+            if currentFinancialCurrencyScope == .system && viewModel.hasFileCurrencyOverride {
+                Text("You are editing the shared default. This board keeps its own currency until you switch it back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var financialCurrencySourceTitle: String {
+        if !viewModel.hasOpenBoardContext {
+            return "Editing the system default currency"
+        }
+        if viewModel.hasFileCurrencyOverride {
+            return "This board uses a custom currency"
+        }
+        return "This board uses the system default currency"
+    }
+
+    private var financialCurrencySourceDescription: String {
+        if !viewModel.hasOpenBoardContext {
+            return "Open or create a board to use a different currency in just that file."
+        }
+        if viewModel.hasFileCurrencyOverride {
+            return "The override is saved in \(boardFileDescription)."
+        }
+        return "Changes to the system default affect every board without its own currency."
+    }
+
+    private func financialCurrencySectionTitle(for scope: KommitViewModel.StatusSettingsScope) -> String {
+        switch scope {
+        case .file:
+            return "Currency for This Board"
+        case .system:
+            if viewModel.hasFileCurrencyOverride || !viewModel.hasOpenBoardContext {
+                return "System Default Currency"
+            }
+            return "Currency"
+        }
+    }
+
+    private func financialCurrencySectionDescription(for scope: KommitViewModel.StatusSettingsScope) -> String {
+        switch scope {
+        case .file:
+            return "Only this board uses this ISO currency for display."
+        case .system:
+            if !viewModel.hasOpenBoardContext {
+                return "Boards without a per-file override use this currency."
+            }
+            if viewModel.hasFileCurrencyOverride {
+                return "Boards without a per-file override use this currency."
+            }
+            return "This board follows the system default above."
+        }
+    }
+
+    private func syncFinancialCurrencyScopeWithModel() {
+        financialCurrencyScope = viewModel.hasFileCurrencyOverride ? .file : .system
+    }
+
+    private static func currencyMenuLabel(for code: String) -> String {
+        let localized = Locale.current.localizedString(forCurrencyCode: code) ?? code
+        return "\(localized) (\(code))"
+    }
+
+    private func confirmRevertFinancialCurrencyToSystem() {
+        let alert = NSAlert()
+        alert.messageText = "Use System Default Currency?"
+        alert.informativeText =
+            "This removes the board-specific currency from \(boardFileDescription). Amounts will use the shared system default."
+        alert.addButton(withTitle: "Revert")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        viewModel.removeFileCurrencyOverride()
+        financialCurrencyScope = .system
     }
 
     private var statusSourceTitle: String {

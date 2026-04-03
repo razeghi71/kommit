@@ -27,6 +27,10 @@ package final class KommitViewModel: ObservableObject {
     @Published var nodes: [UUID: KommitNode] = [:]
     @Published var systemStatusSettings: KommitStatusSettings
     @Published var fileStatusSettings: KommitStatusSettings?
+    /// App-wide default ISO 4217 currency; boards without an override use this.
+    @Published var systemPreferredCurrencyCode: String
+    /// When set, the open board shows amounts in this currency and the value is saved in the document.
+    @Published var filePreferredCurrencyCode: String?
     @Published package var editingNodeID: UUID?
     @Published package var selectedNodeID: UUID?
     @Published package var selectedNodeIDs: Set<UUID> = []
@@ -60,6 +64,10 @@ package final class KommitViewModel: ObservableObject {
     private var lastAppliedCanvasRecenterToken: UInt64 = 0
     let userDefaults = UserDefaults.standard
     private let systemStatusSettingsKey = "kommit.systemStatusSettings"
+    private let systemPreferredCurrencyKey = "kommit.systemPreferredCurrencyCode"
+
+    private var financialCurrencyFormatterCacheCode: String?
+    private var financialCurrencyFormatterInstance: NumberFormatter?
 
     static let recentDocumentPathsKey = "kommit.recentDocumentPaths"
 
@@ -78,7 +86,23 @@ package final class KommitViewModel: ObservableObject {
     var activeStatusSettings: KommitStatusSettings { fileStatusSettings ?? systemStatusSettings }
     var effectiveStatusSettingsScope: StatusSettingsScope { hasFileStatusSettings ? .file : .system }
     var hasFileStatusSettings: Bool { fileStatusSettings != nil }
+    package var hasFileCurrencyOverride: Bool { filePreferredCurrencyCode != nil }
     package var hasOpenBoardContext: Bool { !shouldShowStartHub }
+
+    package var effectiveFinancialCurrencyCode: String {
+        if let file = filePreferredCurrencyCode {
+            return file
+        }
+        return systemPreferredCurrencyCode
+    }
+
+    package var effectiveFinancialCurrencySymbol: String {
+        let formatter = financialCurrencyFormatter()
+        if let symbol = formatter.currencySymbol, !symbol.isEmpty {
+            return symbol
+        }
+        return formatter.internationalCurrencySymbol ?? effectiveFinancialCurrencyCode
+    }
 
     /// Set from the main SwiftUI window (`ContentView`). Used where `EnvironmentValues.openWindow` is unavailable.
     var openSettingsWindowAction: (() -> Void)?
@@ -89,6 +113,7 @@ package final class KommitViewModel: ObservableObject {
 
     package init() {
         systemStatusSettings = KommitViewModel.loadSystemStatusSettings(from: UserDefaults.standard, key: "kommit.systemStatusSettings")
+        systemPreferredCurrencyCode = KommitViewModel.loadSystemPreferredCurrencyCode(from: UserDefaults.standard, key: systemPreferredCurrencyKey)
     }
 
     package var shouldShowStartHub: Bool {
@@ -636,6 +661,78 @@ package final class KommitViewModel: ObservableObject {
     private func persistSystemStatusSettings() {
         guard let data = try? JSONEncoder().encode(systemStatusSettings) else { return }
         userDefaults.set(data, forKey: systemStatusSettingsKey)
+    }
+
+    private static func loadSystemPreferredCurrencyCode(from defaults: UserDefaults, key: String) -> String {
+        if let stored = defaults.string(forKey: key) {
+            return FinancialCurrencyFormatting.normalizedISOCurrencyCode(stored)
+        }
+        return FinancialCurrencyFormatting.defaultCodeForCurrentLocale()
+    }
+
+    private func persistSystemPreferredCurrencyCode() {
+        userDefaults.set(systemPreferredCurrencyCode, forKey: systemPreferredCurrencyKey)
+    }
+
+    private func invalidateFinancialCurrencyFormatterCache() {
+        financialCurrencyFormatterCacheCode = nil
+        financialCurrencyFormatterInstance = nil
+    }
+
+    private func financialCurrencyFormatter() -> NumberFormatter {
+        let code = effectiveFinancialCurrencyCode
+        if financialCurrencyFormatterCacheCode == code, let cached = financialCurrencyFormatterInstance {
+            return cached
+        }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = code
+        formatter.locale = FinancialCurrencyFormatting.localeForCurrencyDisplay(isoCode: code)
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 0
+        financialCurrencyFormatterCacheCode = code
+        financialCurrencyFormatterInstance = formatter
+        return formatter
+    }
+
+    package func formatFinancialCurrency(_ amount: Double) -> String {
+        financialCurrencyFormatter().string(from: NSNumber(value: amount)) ?? "\(amount)"
+    }
+
+    package func formatFinancialCurrencyUnsigned(_ magnitude: Double) -> String {
+        let value = abs(magnitude)
+        return financialCurrencyFormatter().string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    package func updateSystemPreferredCurrencyCode(_ code: String) {
+        let normalized = FinancialCurrencyFormatting.normalizedISOCurrencyCode(code)
+        guard normalized != systemPreferredCurrencyCode else { return }
+        systemPreferredCurrencyCode = normalized
+        invalidateFinancialCurrencyFormatterCache()
+        persistSystemPreferredCurrencyCode()
+    }
+
+    package func updateFilePreferredCurrencyCode(_ code: String) {
+        guard filePreferredCurrencyCode != nil else { return }
+        let normalized = FinancialCurrencyFormatting.normalizedISOCurrencyCode(code)
+        guard normalized != filePreferredCurrencyCode else { return }
+        filePreferredCurrencyCode = normalized
+        invalidateFinancialCurrencyFormatterCache()
+        isDirty = true
+    }
+
+    package func addFileCurrencyOverride() {
+        guard hasOpenBoardContext, filePreferredCurrencyCode == nil else { return }
+        filePreferredCurrencyCode = systemPreferredCurrencyCode
+        invalidateFinancialCurrencyFormatterCache()
+        isDirty = true
+    }
+
+    package func removeFileCurrencyOverride() {
+        guard filePreferredCurrencyCode != nil else { return }
+        filePreferredCurrencyCode = nil
+        invalidateFinancialCurrencyFormatterCache()
+        isDirty = true
     }
 
     private static func displayName(for node: KommitNode) -> String {

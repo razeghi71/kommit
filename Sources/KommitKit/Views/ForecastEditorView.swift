@@ -153,7 +153,7 @@ struct ForecastEditorView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                         HStack(spacing: 2) {
-                            Text("$").foregroundStyle(.tertiary)
+                            Text(viewModel.effectiveFinancialCurrencySymbol).foregroundStyle(.tertiary)
                             TextField("0.00", text: $amount)
                                 .textFieldStyle(.roundedBorder)
                         }

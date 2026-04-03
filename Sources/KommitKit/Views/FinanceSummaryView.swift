@@ -155,7 +155,7 @@ struct FinanceSummaryView: View {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text("\(prefix)\(formatAmount(amount))")
+            Text("\(prefix)\(viewModel.formatFinancialCurrencyUnsigned(amount))")
                 .font(.system(size: 20, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)
         }
@@ -224,7 +224,7 @@ struct FinanceSummaryView: View {
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                 Spacer()
-                Text(formatAmount(amount))
+                Text(viewModel.formatFinancialCurrencyUnsigned(amount))
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Self.expenseRed)
             }
@@ -379,7 +379,7 @@ struct FinanceSummaryView: View {
             }
             .frame(height: 10)
 
-            Text(formatAmount(amount))
+            Text(viewModel.formatFinancialCurrencyUnsigned(amount))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(.primary)
                 .frame(width: 90, alignment: .trailing)
@@ -399,15 +399,6 @@ struct FinanceSummaryView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
-    }
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        let core = formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
-        return "$" + core
     }
 
     // MARK: - Colors

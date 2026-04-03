@@ -388,7 +388,7 @@ struct TransactionEditorView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
             HStack(spacing: 2) {
-                Text("$").foregroundStyle(.tertiary)
+                Text(viewModel.effectiveFinancialCurrencySymbol).foregroundStyle(.tertiary)
                 TextField("0.00", text: $amount)
                     .textFieldStyle(.roundedBorder)
             }
@@ -450,8 +450,9 @@ struct TransactionEditorView: View {
 
     private func commitmentPickerLabel(for commitment: Commitment) -> String {
         let name = commitment.name.isEmpty ? "Untitled" : commitment.name
-        let amountPrefix = commitment.type == .income ? "+$" : "-$"
-        return "\(name) - \(amountPrefix)\(formatMoney(commitment.amount))"
+        let formatted = viewModel.formatFinancialCurrencyUnsigned(commitment.amount)
+        let sign = commitment.type == .income ? "+" : "-"
+        return "\(name) - \(sign)\(formatted)"
     }
 
     @ViewBuilder
@@ -672,14 +673,6 @@ struct TransactionEditorView: View {
     private func normalizedTagKey(_ tag: String) -> String {
         tag.trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
-
-    private func formatMoney(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
     }
 
     private func planningMode(for transaction: FinancialTransaction) -> TransactionPlanningMode {

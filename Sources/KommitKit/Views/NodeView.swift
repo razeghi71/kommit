@@ -93,14 +93,6 @@ struct NodeView: View {
         formatter.timeStyle = .none
         return formatter
     }()
-    private static let budgetFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.maximumFractionDigits = 2
-        formatter.minimumFractionDigits = 0
-        return formatter
-    }()
-
     private static func colorDot(hex: String) -> NSImage {
         let size = NSSize(width: 14, height: 14)
         let image = NSImage(size: size, flipped: false) { rect in
@@ -524,10 +516,7 @@ struct NodeView: View {
     }
 
     private func formattedBudget(_ value: Double) -> String {
-        if let formatted = Self.budgetFormatter.string(from: NSNumber(value: value)) {
-            return formatted
-        }
-        return String(format: "$%.2f", value)
+        viewModel.formatFinancialCurrencyUnsigned(value)
     }
 
     private static func plainBudgetString(_ value: Double) -> String {

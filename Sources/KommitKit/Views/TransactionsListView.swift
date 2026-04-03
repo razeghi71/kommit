@@ -144,6 +144,7 @@ struct TransactionsListView: View {
                             forecastName: forecastName(for: txn),
                             deferredCommitmentName: deferredCommitmentName(for: txn),
                             settlementCommitmentName: settlementCommitmentName(for: txn),
+                            viewModel: viewModel,
                             onEdit: { editingTransaction = txn },
                             onDelete: { viewModel.deleteFinancialTransaction(txn.id) }
                         )
@@ -161,6 +162,7 @@ struct TransactionRow: View {
     let forecastName: String?
     let deferredCommitmentName: String?
     let settlementCommitmentName: String?
+    @ObservedObject var viewModel: KommitViewModel
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -215,7 +217,7 @@ struct TransactionRow: View {
 
             Spacer()
 
-            Text(transaction.type == .income ? "+\(formatAmount(displayAmount))" : "-\(formatAmount(displayAmount))")
+            Text(transaction.type == .income ? "+\(viewModel.formatFinancialCurrencyUnsigned(displayAmount))" : "-\(viewModel.formatFinancialCurrencyUnsigned(displayAmount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundStyle(transaction.type == .income ? .green : .primary)
 
@@ -253,11 +255,4 @@ struct TransactionRow: View {
         return f
     }()
 
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
-    }
 }

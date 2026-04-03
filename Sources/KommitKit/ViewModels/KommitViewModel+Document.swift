@@ -11,6 +11,7 @@ extension KommitViewModel {
         financialTransactions.removeAll()
         financeCalendarStartingBalance = 0
         fileStatusSettings = nil
+        filePreferredCurrencyCode = nil
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -51,6 +52,7 @@ extension KommitViewModel {
         let forecasts: [Forecast]?
         let financialTransactions: [FinancialTransaction]?
         let financeCalendarStartingBalance: Double?
+        let preferredCurrencyCode: String?
     }
 
     private struct MigratedNodes {
@@ -62,7 +64,7 @@ extension KommitViewModel {
         let decoder = JSONDecoder()
 
         if let document = try? decoder.decode(KommitDocument.self, from: data) {
-            let explicitFileSettings = document.settings.map { KommitStatusSettings(statusPalette: $0.statusPalette) }
+            let explicitFileSettings = document.settings?.statusPalette.map { KommitStatusSettings(statusPalette: $0) }
             let migrated = migrateLoadedNodes(document.nodes, baseSettings: explicitFileSettings ?? systemStatusSettings)
             return DecodedBoard(
                 nodes: migrated.nodes,
@@ -70,7 +72,8 @@ extension KommitViewModel {
                 commitments: document.commitments,
                 forecasts: document.forecasts,
                 financialTransactions: document.financialTransactions,
-                financeCalendarStartingBalance: document.financeCalendarStartingBalance
+                financeCalendarStartingBalance: document.financeCalendarStartingBalance,
+                preferredCurrencyCode: document.settings?.preferredCurrencyCode
             )
         }
 
@@ -82,7 +85,8 @@ extension KommitViewModel {
             commitments: nil,
             forecasts: nil,
             financialTransactions: nil,
-            financeCalendarStartingBalance: nil
+            financeCalendarStartingBalance: nil,
+            preferredCurrencyCode: nil
         )
     }
 
@@ -186,6 +190,7 @@ extension KommitViewModel {
         financialTransactions.removeAll()
         financeCalendarStartingBalance = 0
         fileStatusSettings = nil
+        filePreferredCurrencyCode = nil
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -231,14 +236,21 @@ extension KommitViewModel {
         let commitmentList = commitments.values.isEmpty ? nil : Array(commitments.values)
         let forecastList = forecasts.values.isEmpty ? nil : Array(forecasts.values)
         let transactions = financialTransactions.values.isEmpty ? nil : Array(financialTransactions.values)
-        let startingBalanceField = financeCalendarStartingBalance == 0 ? nil : financeCalendarStartingBalance
+        let statusPalette: [KommitStatusDefinition]? = {
+            guard let file = fileStatusSettings else { return nil }
+            return file == systemStatusSettings ? nil : file.statusPalette
+        }()
+        let boardSettings = KommitBoardSettings(
+            statusPalette: statusPalette,
+            preferredCurrencyCode: filePreferredCurrencyCode
+        )
         let document = KommitDocument(
             nodes: sortedNodes,
-            settings: fileStatusSettings == systemStatusSettings ? nil : fileStatusSettings,
+            settings: boardSettings.hasAnyValue ? boardSettings : nil,
+            financeCalendarStartingBalance: financeCalendarStartingBalance == 0 ? nil : financeCalendarStartingBalance,
             commitments: commitmentList,
             forecasts: forecastList,
-            financialTransactions: transactions,
-            financeCalendarStartingBalance: startingBalanceField
+            financialTransactions: transactions
         )
         guard let data = try? encoder.encode(document) else { return }
         do {
@@ -267,6 +279,11 @@ extension KommitViewModel {
         backfillTransactionTagsFromPlanningItemsIfNeeded()
         financeCalendarStartingBalance = loaded.financeCalendarStartingBalance ?? 0
         fileStatusSettings = loaded.fileStatusSettings
+        if let rawCurrency = loaded.preferredCurrencyCode {
+            filePreferredCurrencyCode = FinancialCurrencyFormatting.normalizedISOCurrencyCode(rawCurrency)
+        } else {
+            filePreferredCurrencyCode = nil
+        }
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
