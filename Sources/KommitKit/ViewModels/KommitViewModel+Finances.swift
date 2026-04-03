@@ -310,34 +310,4 @@ extension KommitViewModel {
         return out
     }
 
-    func backfillTransactionTagsFromPlanningItemsIfNeeded() {
-        var changed = false
-        for id in financialTransactions.keys {
-            guard var txn = financialTransactions[id], txn.tags.isEmpty else { continue }
-            if let settles = txn.settles,
-                let commitment = commitments[settles.commitmentID],
-                !commitment.tags.isEmpty {
-                txn.tags = commitment.tags
-                financialTransactions[id] = txn
-                changed = true
-            } else if let deferredTo = txn.deferredTo,
-                let commitment = commitments[deferredTo.commitmentID],
-                !commitment.tags.isEmpty {
-                txn.tags = commitment.tags
-                financialTransactions[id] = txn
-                changed = true
-            } else if let forecastID = txn.forecastID,
-                let forecast = forecasts[forecastID],
-                !forecast.tags.isEmpty {
-                txn.tags = forecast.tags
-                financialTransactions[id] = txn
-                changed = true
-            }
-        }
-        if changed {
-            isDirty = true
-        }
-    }
-
-
 }

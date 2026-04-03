@@ -201,7 +201,6 @@ extension KommitViewModel {
         commitments = Dictionary(uniqueKeysWithValues: (loaded.commitments ?? []).map { ($0.id, $0) })
         forecasts = Dictionary(uniqueKeysWithValues: (loaded.forecasts ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })
-        backfillTransactionTagsFromPlanningItemsIfNeeded()
         financeCalendarStartingBalance = loaded.financeCalendarStartingBalance ?? 0
         fileStatusSettings = loaded.fileStatusSettings
         if let rawCurrency = loaded.preferredCurrencyCode {
