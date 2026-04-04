@@ -199,7 +199,7 @@ struct CommitmentEditorView: View {
             }
 
             FieldGroup("Schedule") {
-                DatePicker("Date", selection: $eventDate, displayedComponents: .date)
+                SelectableCalendarDateRow(title: "Date", date: $eventDate)
 
                 if allowsRecurrence {
                     recurrencePicker

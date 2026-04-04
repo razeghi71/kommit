@@ -253,7 +253,7 @@ struct TransactionEditorView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            DatePicker("Date", selection: $date, displayedComponents: .date)
+            SelectableCalendarDateRow(title: "Date", date: $date)
 
             TagInputField(
                 tags: $tags,

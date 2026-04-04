@@ -38,6 +38,7 @@ package struct FinanceCalendarView: View {
         .sheet(item: $customRecordPayload) { payload in
             FinanceCalendarCustomRecordSheet(
                 dueDate: payload.dueDate,
+                calendar: calendar,
                 onRecord: { picked in
                     recordCommitmentOccurrence(commitment: payload.commitment, dueDate: payload.dueDate, recordedOn: picked)
                     customRecordPayload = nil
@@ -741,12 +742,22 @@ private struct FinanceCalendarForecastQuickLogPayload: Identifiable {
 }
 
 private struct FinanceCalendarCustomRecordSheet: View {
+    let calendar: Calendar
     @State private var recordDate: Date
+    @State private var recordMonthAnchor: Date
     let onRecord: (Date) -> Void
     let onCancel: () -> Void
 
-    init(dueDate: Date, onRecord: @escaping (Date) -> Void, onCancel: @escaping () -> Void) {
-        _recordDate = State(initialValue: dueDate)
+    init(
+        dueDate: Date,
+        calendar: Calendar = .current,
+        onRecord: @escaping (Date) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.calendar = calendar
+        let start = calendar.startOfDay(for: dueDate)
+        _recordDate = State(initialValue: start)
+        _recordMonthAnchor = State(initialValue: CalendarDatePickerDayMath.firstDayOfMonth(containing: start, calendar: calendar))
         self.onRecord = onRecord
         self.onCancel = onCancel
     }
@@ -754,11 +765,15 @@ private struct FinanceCalendarCustomRecordSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                DatePicker("Record date", selection: $recordDate, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
+                CalendarGridDatePicker(
+                    selectedDate: $recordDate,
+                    monthAnchor: $recordMonthAnchor,
+                    calendar: calendar
+                )
                 Spacer()
             }
             .padding()
+            .frame(minWidth: 300, minHeight: 420)
             .navigationTitle("Custom Record Date")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -766,8 +781,9 @@ private struct FinanceCalendarCustomRecordSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Record") {
-                        onRecord(recordDate)
+                        onRecord(calendar.startOfDay(for: recordDate))
                     }
+                    .keyboardShortcut(.defaultAction)
                 }
             }
         }

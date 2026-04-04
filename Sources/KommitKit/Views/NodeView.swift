@@ -12,6 +12,7 @@ struct NodeView: View {
     /// Width at first layout after entering edit mode; used to grow the editor to the right without moving the leading edge until commit.
     @State private var editingLayoutBaselineWidth: CGFloat?
     @State private var lastMeasuredSize: CGSize = .zero
+    @State private var plannedDateSheetToken: NodePlannedDateSheetToken?
 
     private var isEditing: Bool {
         viewModel.editingNodeID == node.id
@@ -348,6 +349,23 @@ struct NodeView: View {
                 }
         )
         .onHover { isHovering = $0 }
+        .sheet(item: $plannedDateSheetToken) { token in
+            CalendarDatePickerSheet(
+                initialDate: token.initialDate,
+                calendar: Calendar.current,
+                onDone: { picked in
+                    let normalized = Calendar.current.startOfDay(for: picked)
+                    viewModel.setNodePlannedDates(contextMenuTargetNodeIDs, date: normalized)
+                    plannedDateSheetToken = nil
+                },
+                onCancel: { plannedDateSheetToken = nil }
+            )
+        }
+    }
+
+    private struct NodePlannedDateSheetToken: Identifiable {
+        let id = UUID()
+        let initialDate: Date
     }
 
     @ViewBuilder
@@ -474,9 +492,9 @@ struct NodeView: View {
     }
 
     private func setPlannedDate(initialDate: Date?) {
-        guard let pickedDate = promptForPlannedDate(initialDate: initialDate) else { return }
-        let normalized = Calendar.current.startOfDay(for: pickedDate)
-        viewModel.setNodePlannedDates(contextMenuTargetNodeIDs, date: normalized)
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: initialDate ?? Date())
+        plannedDateSheetToken = NodePlannedDateSheetToken(initialDate: start)
     }
 
     private func setBudget(initialBudget: Double?) {

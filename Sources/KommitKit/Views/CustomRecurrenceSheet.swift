@@ -79,7 +79,7 @@ struct CustomRecurrenceSheet: View {
                 .padding(20)
             }
         }
-        .frame(width: 420, height: 440)
+        .frame(width: 420, height: 480)
         .interactiveDismissDisabled(hasUnsavedCustomRecurrenceDraft)
         .onAppear { loadInitial() }
     }
@@ -204,9 +204,7 @@ struct CustomRecurrenceSheet: View {
             case .never:
                 EmptyView()
             case .onDate:
-                DatePicker("", selection: $endDate, displayedComponents: .date)
-                    .datePickerStyle(.compact)
-                    .labelsHidden()
+                SelectableCalendarDateRow(title: "End date", date: $endDate)
             case .afterCount:
                 HStack(spacing: 4) {
                     Stepper("\(endCount)", value: $endCount, in: 1...999)

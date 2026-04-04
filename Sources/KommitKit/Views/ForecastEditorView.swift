@@ -170,7 +170,7 @@ struct ForecastEditorView: View {
             }
 
             FieldGroup("Schedule") {
-                DatePicker("Starts", selection: $eventDate, displayedComponents: .date)
+                SelectableCalendarDateRow(title: "Starts", date: $eventDate)
 
                 recurrencePicker
 
