@@ -664,12 +664,14 @@ struct TransactionEditorView: View {
         let existingTags = viewModel.allFinancialTags() + viewModel.allTransactionTags()
         let selected = Set(tags.map { normalizedTagKey($0) })
         let query = tagInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = Array(Set(existingTags)).filter { !selected.contains(normalizedTagKey($0)) }
+        // Sort after Set so order is stable on every body pass (Set order is undefined).
+        let base = Array(Set(existingTags))
+            .filter { !selected.contains(normalizedTagKey($0)) }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         guard !query.isEmpty else { return Array(base.prefix(8)) }
 
         return base
             .filter { $0.localizedCaseInsensitiveContains(query) }
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
             .prefix(8)
             .map { $0 }
     }
