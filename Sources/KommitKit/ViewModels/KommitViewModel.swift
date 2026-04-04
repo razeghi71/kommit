@@ -282,7 +282,7 @@ package final class KommitViewModel: ObservableObject {
         saveSnapshot()
         let node = KommitNode(position: position)
         nodes[node.id] = node
-        editingNodeID = node.id
+        beginEditing(nodeID: node.id, recordUndoSnapshot: false)
     }
 
     func addChildNode(parentID: UUID, direction: DragDirection, at dropPoint: CGPoint? = nil) {
@@ -319,7 +319,7 @@ package final class KommitViewModel: ObservableObject {
 
         let child = KommitNode(position: position, parentIDs: [parentID])
         nodes[child.id] = child
-        editingNodeID = child.id
+        beginEditing(nodeID: child.id, recordUndoSnapshot: false)
     }
 
     func effectivePosition(_ id: UUID) -> CGPoint {
@@ -755,6 +755,20 @@ package final class KommitViewModel: ObservableObject {
         if editingNodeID == id {
             editingNodeID = nil
         }
+    }
+
+    func beginEditing(nodeID: UUID, recordUndoSnapshot: Bool = true) {
+        if recordUndoSnapshot {
+            saveSnapshot()
+        }
+        editingNodeID = nodeID
+    }
+
+    /// Applies horizontal shift after editing so the node’s stored center matches a width change that grew to the right (`deltaX` is half the width delta).
+    func applyEditingHorizontalAnchor(nodeID: UUID, deltaX: CGFloat) {
+        guard deltaX != 0, var node = nodes[nodeID] else { return }
+        node.position.x += deltaX
+        nodes[nodeID] = node
     }
 
     func commitEditing() {

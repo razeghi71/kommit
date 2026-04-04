@@ -6,11 +6,12 @@ struct NodeView: View {
     @ObservedObject var viewModel: KommitViewModel
     @AppStorage("showNodeRanks") private var showNodeRanks = true
     @State private var isHovering = false
-    @State private var showsPlannedDateTooltip = false
-    @State private var plannedDateTooltipTask: Task<Void, Never>?
     @State private var editText: String = ""
     @State private var dragOffset: CGSize = .zero
     @FocusState private var textFieldFocused: Bool
+    /// Width at first layout after entering edit mode; used to grow the editor to the right without moving the leading edge until commit.
+    @State private var editingLayoutBaselineWidth: CGFloat?
+    @State private var lastMeasuredSize: CGSize = .zero
 
     private var isEditing: Bool {
         viewModel.editingNodeID == node.id
@@ -87,6 +88,31 @@ struct NodeView: View {
         viewModel.nodeSizes[node.id] ?? NodeDefaults.size
     }
 
+    private var dragOffsetForNode: CGSize {
+        isMultiSelected ? (viewModel.nodeDragOffset[node.id] ?? .zero) : dragOffset
+    }
+
+    private var editingLeadingAnchorOffsetX: CGFloat {
+        guard isEditing, let baseline = editingLayoutBaselineWidth else { return 0 }
+        let w =
+            lastMeasuredSize.width > 0
+            ? lastMeasuredSize.width
+            : (viewModel.nodeSizes[node.id]?.width ?? baseline)
+        return (w - baseline) / 2
+    }
+
+    private func persistEditingLeadingAnchorIfNeeded() {
+        guard let baseline = editingLayoutBaselineWidth else { return }
+        editingLayoutBaselineWidth = nil
+        let finalWidth =
+            lastMeasuredSize.width > 0
+            ? lastMeasuredSize.width
+            : (viewModel.nodeSizes[node.id]?.width ?? baseline)
+        let deltaX = (finalWidth - baseline) / 2
+        guard deltaX != 0 else { return }
+        viewModel.applyEditingHorizontalAnchor(nodeID: node.id, deltaX: deltaX)
+    }
+
     private static let plannedDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -119,10 +145,19 @@ struct NodeView: View {
                     GeometryReader { geo in
                         Color.clear
                             .onAppear {
-                                viewModel.nodeSizes[node.id] = geo.size
+                                let size = geo.size
+                                viewModel.nodeSizes[node.id] = size
+                                lastMeasuredSize = size
+                                if isEditing, editingLayoutBaselineWidth == nil {
+                                    editingLayoutBaselineWidth = size.width
+                                }
                             }
                             .onChange(of: geo.size) { _, newSize in
                                 viewModel.nodeSizes[node.id] = newSize
+                                lastMeasuredSize = newSize
+                                if isEditing, editingLayoutBaselineWidth == nil {
+                                    editingLayoutBaselineWidth = newSize.width
+                                }
                             }
                     }
                 )
@@ -139,9 +174,6 @@ struct NodeView: View {
                             .offset(x: -6, y: -6)
                             .allowsHitTesting(false)
                     }
-                }
-                .overlay(alignment: .top) {
-                    plannedDateTooltip
                 }
                 .contextMenu {
                     Menu {
@@ -268,7 +300,20 @@ struct NodeView: View {
                 plusButtons
             }
         }
-        .offset(isMultiSelected ? (viewModel.nodeDragOffset[node.id] ?? .zero) : dragOffset)
+        .offset(
+            CGSize(
+                width: dragOffsetForNode.width + editingLeadingAnchorOffsetX,
+                height: dragOffsetForNode.height
+            )
+        )
+        .onChange(of: isEditing) { _, editing in
+            if editing {
+                let w = viewModel.nodeSizes[node.id]?.width ?? lastMeasuredSize.width
+                editingLayoutBaselineWidth = w > 0 ? w : nil
+            } else {
+                persistEditingLeadingAnchorIfNeeded()
+            }
+        }
         .gesture(
             isEditing ? nil :
             DragGesture(minimumDistance: 3)
@@ -302,19 +347,7 @@ struct NodeView: View {
                     }
                 }
         )
-        .onHover { hovering in
-            handleNodeHoverChange(hovering)
-        }
-        .onChange(of: isEditing) { _, editing in
-            if editing {
-                cancelPlannedDateTooltip()
-            } else if isHovering {
-                schedulePlannedDateTooltip()
-            }
-        }
-        .onDisappear {
-            cancelPlannedDateTooltip()
-        }
+        .onHover { isHovering = $0 }
     }
 
     @ViewBuilder
@@ -332,10 +365,10 @@ struct NodeView: View {
         TextField("Type here...", text: $editText)
             .textFieldStyle(.plain)
             .font(.system(size: 13, weight: .medium))
-            .multilineTextAlignment(.center)
+            .multilineTextAlignment(.leading)
             .focused($textFieldFocused)
-            .frame(minWidth: minWidth)
-            .fixedSize()
+            .frame(minWidth: minWidth, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(
@@ -362,51 +395,61 @@ struct NodeView: View {
     }
 
     private var displayNodeBody: some View {
-        Text(node.text.isEmpty ? " " : node.text)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(borderColor)
-            .frame(minWidth: minWidth)
-            .fixedSize()
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(fillColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(borderStroke, style: borderStyle)
-            )
-            .overlay(selectionOutlineOverlay)
-            .onTapGesture(count: 1) {
-                if NSEvent.modifierFlags.contains(.shift) {
-                    // Shift-click: toggle in multi-selection
-                    if viewModel.selectedNodeIDs.contains(node.id) {
-                        viewModel.selectedNodeIDs.remove(node.id)
-                        if viewModel.selectedNodeID == node.id {
-                            viewModel.selectedNodeID = viewModel.selectedNodeIDs.first
-                        }
-                    } else {
-                        // If there's a single selected node, promote it to multi-selection
-                        if let existing = viewModel.selectedNodeID, viewModel.selectedNodeIDs.isEmpty {
-                            viewModel.selectedNodeIDs.insert(existing)
-                        }
-                        viewModel.selectedNodeIDs.insert(node.id)
-                        viewModel.selectedNodeID = node.id
-                    }
-                    viewModel.selectedEdgeID = nil
-                } else if isSelected && viewModel.selectedNodeIDs.count <= 1 {
-                    editText = node.text
-                    viewModel.selectedNodeID = nil
-                    viewModel.selectedNodeIDs.removeAll()
-                    viewModel.editingNodeID = node.id
-                } else {
-                    viewModel.commitEditing()
-                    viewModel.selectedNodeID = node.id
-                    viewModel.selectedNodeIDs = [node.id]
-                    viewModel.selectedEdgeID = nil
-                }
+        VStack(alignment: .leading, spacing: 3) {
+            Text(node.text.isEmpty ? " " : node.text)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(borderColor)
+                .multilineTextAlignment(.leading)
+
+            if let plannedDate = node.plannedDate {
+                Text(Self.plannedDateFormatter.string(from: plannedDate))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
             }
+        }
+        .frame(minWidth: minWidth, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(fillColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(borderStroke, style: borderStyle)
+        )
+        .overlay(selectionOutlineOverlay)
+        .onTapGesture(count: 1) {
+            if NSEvent.modifierFlags.contains(.shift) {
+                // Shift-click: toggle in multi-selection
+                if viewModel.selectedNodeIDs.contains(node.id) {
+                    viewModel.selectedNodeIDs.remove(node.id)
+                    if viewModel.selectedNodeID == node.id {
+                        viewModel.selectedNodeID = viewModel.selectedNodeIDs.first
+                    }
+                } else {
+                    // If there's a single selected node, promote it to multi-selection
+                    if let existing = viewModel.selectedNodeID, viewModel.selectedNodeIDs.isEmpty {
+                        viewModel.selectedNodeIDs.insert(existing)
+                    }
+                    viewModel.selectedNodeIDs.insert(node.id)
+                    viewModel.selectedNodeID = node.id
+                }
+                viewModel.selectedEdgeID = nil
+            } else if isSelected && viewModel.selectedNodeIDs.count <= 1 {
+                editText = node.text
+                viewModel.selectedNodeID = nil
+                viewModel.selectedNodeIDs.removeAll()
+                viewModel.beginEditing(nodeID: node.id)
+            } else {
+                viewModel.commitEditing()
+                viewModel.selectedNodeID = node.id
+                viewModel.selectedNodeIDs = [node.id]
+                viewModel.selectedEdgeID = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -428,56 +471,6 @@ struct NodeView: View {
             )
             .offset(x: dx, y: dy)
         }
-    }
-
-    @ViewBuilder
-    private var plannedDateTooltip: some View {
-        if showsPlannedDateTooltip, let plannedDate = node.plannedDate {
-            Text("Planned: \(Self.plannedDateFormatter.string(from: plannedDate))")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(.regularMaterial)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(.primary.opacity(0.15), lineWidth: 1)
-                )
-                .offset(y: -34)
-                .allowsHitTesting(false)
-        }
-    }
-
-    private func handleNodeHoverChange(_ hovering: Bool) {
-        isHovering = hovering
-        if hovering {
-            schedulePlannedDateTooltip()
-        } else {
-            cancelPlannedDateTooltip()
-        }
-    }
-
-    private func schedulePlannedDateTooltip() {
-        cancelPlannedDateTooltip()
-        guard node.plannedDate != nil, !isEditing else { return }
-        plannedDateTooltipTask = Task {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                if isHovering, node.plannedDate != nil, !isEditing {
-                    showsPlannedDateTooltip = true
-                }
-            }
-        }
-    }
-
-    private func cancelPlannedDateTooltip() {
-        plannedDateTooltipTask?.cancel()
-        plannedDateTooltipTask = nil
-        showsPlannedDateTooltip = false
     }
 
     private func setPlannedDate(initialDate: Date?) {
