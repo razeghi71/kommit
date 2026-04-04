@@ -6,6 +6,13 @@ private enum CanvasRecenter {
     static let maxComfortScale: CGFloat = 2.75
 }
 
+private enum CanvasKeyboardZoom {
+    /// One step ≈ one line of ⌘-scroll (`ScrollWheelHandler` line-mode `k`, `exp(1 * k)`).
+    private static let lineK: CGFloat = 0.11
+    static let inFactor: CGFloat = exp(lineK)
+    static var outFactor: CGFloat { 1 / inFactor }
+}
+
 private enum SelectionMarqueeAutoScroll {
     static let edgeMargin: CGFloat = 56
     static let maxStep: CGFloat = 14
@@ -255,8 +262,8 @@ struct CanvasView: View {
                 .scaleEffect(currentScale)
                 .offset(totalOffset)
 
-                // Invisible scroll wheel receiver
-                ScrollWheelHandler(panOffset: $panOffset)
+                // Invisible scroll wheel receiver (pan; ⌘-scroll zooms toward cursor)
+                ScrollWheelHandler(panOffset: $panOffset, scale: $scale, viewportSize: geo.size)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
                 }
@@ -337,6 +344,11 @@ struct CanvasView: View {
             }
             .onChange(of: viewModel.canvasRecenterToken) { _, _ in
                 applyCanvasRecenterIfPending(viewportSize: geo.size)
+            }
+            .onChange(of: viewModel.canvasKeyboardZoomPulse) { _, pulse in
+                guard let pulse else { return }
+                applyKeyboardStepZoom(zoomIn: pulse.zoomIn, viewportSize: geo.size)
+                viewModel.clearCanvasKeyboardZoomPulse()
             }
             .simultaneousGesture(
                 MagnifyGesture()
@@ -430,6 +442,24 @@ struct CanvasView: View {
         guard viewModel.isCanvasRecenterPending else { return }
         centerOnNodes(viewportSize: viewportSize)
         viewModel.markCanvasRecenterApplied()
+    }
+
+    private func applyKeyboardStepZoom(zoomIn: Bool, viewportSize: CGSize) {
+        guard viewportSize.width > 1, viewportSize.height > 1 else { return }
+        let center = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+        let combined = scale * gestureScale
+        let factor = zoomIn ? CanvasKeyboardZoom.inFactor : CanvasKeyboardZoom.outFactor
+        let nextScale = clampScale(combined * factor)
+        let focalCanvas = screenPointToCanvas(center, offset: panOffset, scale: combined, center: center)
+        panOffset = panOffsetKeepingCanvasPointAtScreen(
+            canvasPoint: focalCanvas,
+            screenAnchor: center,
+            scale: nextScale,
+            center: center
+        )
+        scale = nextScale
+        gestureScale = 1.0
+        magnifyFocalCanvasPoint = nil
     }
 
     private func shouldShowRecenterAffordance(

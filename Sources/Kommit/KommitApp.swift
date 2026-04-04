@@ -88,6 +88,17 @@ struct KommitApp: App {
                 // ⌘C is reserved for Edit › Copy; a duplicate key equivalent does not show in the menu.
                 .keyboardShortcut("0", modifiers: .command)
 
+                Button("Zoom In") {
+                    viewModel.requestCanvasZoomIn()
+                }
+                // Standard macOS mapping: ⌘+ (base key is “=”).
+                .keyboardShortcut("=", modifiers: .command)
+
+                Button("Zoom Out") {
+                    viewModel.requestCanvasZoomOut()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
                 Toggle("Show Node Ranks", isOn: $showNodeRanks)
                 Toggle(
                     "Show Hidden Items",
@@ -150,6 +161,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
     var mainWindow: NSWindow?
     var openMainWindowAction: (() -> Void)?
 
+    /// `kVK_ANSI_KeypadPlus` — SwiftUI’s ⌘+ menu binding uses the `=` key only, not numpad `+`.
+    private static let keypadPlusKeyCode: UInt16 = 0x45
+
+    private var canvasKeypadZoomMonitor: Any?
+
     func configureWindow(_ window: NSWindow) {
         window.delegate = self
         window.titleVisibility = .visible
@@ -209,12 +225,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         } else if let icon = NSImage(named: "AppIcon") {
             NSApplication.shared.applicationIconImage = icon
         }
+        installCanvasKeypadZoomMonitor()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             NSApplication.shared.activate(ignoringOtherApps: true)
             if let window = NSApplication.shared.windows.first {
                 self.configureWindow(window)
                 window.makeKeyAndOrderFront(nil)
             }
+        }
+    }
+
+    /// Handles ⌘ on the numeric keypad `+` so Zoom In matches the main keyboard (⌘+ / ⌘=).
+    private func installCanvasKeypadZoomMonitor() {
+        guard canvasKeypadZoomMonitor == nil else { return }
+        canvasKeypadZoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            guard event.keyCode == Self.keypadPlusKeyCode else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags.contains(.command), !flags.contains(.control) else { return event }
+            guard let main = self.mainWindow, event.window === main else { return event }
+            guard self.shouldAllowCanvasZoomShortcut(in: main) else { return event }
+            self.viewModel?.requestCanvasZoomIn()
+            return nil
+        }
+    }
+
+    private func shouldAllowCanvasZoomShortcut(in window: NSWindow) -> Bool {
+        switch window.firstResponder {
+        case is NSTextView:
+            return false
+        case let field as NSTextField where field.isEditable:
+            return false
+        default:
+            return true
         }
     }
 
