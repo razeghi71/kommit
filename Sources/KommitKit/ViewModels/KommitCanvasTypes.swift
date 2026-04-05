@@ -1,6 +1,11 @@
 import CoreGraphics
 import Foundation
 
+/// Name for `View.coordinateSpace(name:)` on the canvas viewport layer (matches marquee selection coordinates).
+enum KommitCanvasCoordinateSpace {
+    static let viewportName = "kommitCanvasViewport"
+}
+
 enum DragDirection: Sendable {
     case top, right, bottom, left
 }

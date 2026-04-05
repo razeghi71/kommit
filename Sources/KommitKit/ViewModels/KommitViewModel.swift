@@ -37,7 +37,6 @@ package final class KommitViewModel: ObservableObject {
     @Published var edgeDrag: EdgeDragState?
     @Published var dropTargetNodeID: UUID?
     @Published package var selectedEdgeID: String?
-    @Published var nodeDragOffset: [UUID: CGSize] = [:]
     @Published var nodeSizes: [UUID: CGSize] = [:]
     @Published var currentFileURL: URL?
     @Published var fileLoadID: UUID = UUID()
@@ -321,14 +320,6 @@ package final class KommitViewModel: ObservableObject {
         beginEditing(nodeID: child.id, recordUndoSnapshot: false)
     }
 
-    func effectivePosition(_ id: UUID) -> CGPoint {
-        guard let node = nodes[id] else { return .zero }
-        if let offset = nodeDragOffset[id] {
-            return CGPoint(x: node.position.x + offset.width, y: node.position.y + offset.height)
-        }
-        return node.position
-    }
-
     func moveNode(_ id: UUID, to position: CGPoint) {
         saveSnapshot()
         nodes[id]?.position = position
@@ -436,9 +427,6 @@ package final class KommitViewModel: ObservableObject {
             }
         }
 
-        for id in targets {
-            nodeDragOffset.removeValue(forKey: id)
-        }
     }
 
     func areAllNodesHidden(_ ids: Set<UUID>) -> Bool {
@@ -754,8 +742,8 @@ package final class KommitViewModel: ObservableObject {
 
     /// Find a node at the given canvas point (excluding a specific node)
     func nodeAt(point: CGPoint, excluding: UUID) -> UUID? {
-        for (id, _) in nodes where id != excluding && isNodeVisible(id) {
-            let pos = effectivePosition(id)
+        for (id, node) in nodes where id != excluding && isNodeVisible(id) {
+            let pos = node.position
             let size = nodeSizes[id] ?? NodeDefaults.size
             if abs(point.x - pos.x) <= size.width / 2 && abs(point.y - pos.y) <= size.height / 2 {
                 return id
@@ -894,22 +882,16 @@ package final class KommitViewModel: ObservableObject {
         selectedNodeID = ids.first
     }
 
-    func moveSelectedNodes(by offset: CGSize) {
-        for id in selectedNodeIDs {
-            nodeDragOffset[id] = offset
-        }
-    }
-
-    func commitSelectedNodesMove(by offset: CGSize) {
+    func commitNodesMove(_ ids: Set<UUID>, by offset: CGSize) {
+        guard !ids.isEmpty else { return }
         saveSnapshot()
-        for id in selectedNodeIDs {
+        for id in ids {
             if let node = nodes[id] {
                 nodes[id]?.position = CGPoint(
                     x: node.position.x + offset.width,
                     y: node.position.y + offset.height
                 )
             }
-            nodeDragOffset.removeValue(forKey: id)
         }
     }
 

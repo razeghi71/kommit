@@ -4,10 +4,15 @@ import SwiftUI
 struct NodeView: View {
     let node: KommitNode
     @ObservedObject var viewModel: KommitViewModel
+    let canvasScale: CGFloat
+    let onNodeDragChanged: (UUID, CGPoint, CGSize, Bool) -> Void
+    let onNodeDragEnded: () -> Void
+    let onNodeDragCancelled: () -> Void
     @AppStorage("showNodeRanks") private var showNodeRanks = true
     @State private var isHovering = false
     @State private var editText: String = ""
-    @State private var dragOffset: CGSize = .zero
+    @State private var hasActiveNodeDrag = false
+    @GestureState private var isNodeDragGestureActive = false
     @FocusState private var textFieldFocused: Bool
     /// Width at first layout after entering edit mode; used to grow the editor to the right without moving the leading edge until commit.
     @State private var editingLayoutBaselineWidth: CGFloat?
@@ -87,10 +92,6 @@ struct NodeView: View {
 
     private var nodeSize: CGSize {
         viewModel.nodeSizes[node.id] ?? NodeDefaults.size
-    }
-
-    private var dragOffsetForNode: CGSize {
-        isMultiSelected ? (viewModel.nodeDragOffset[node.id] ?? .zero) : dragOffset
     }
 
     private var editingLeadingAnchorOffsetX: CGFloat {
@@ -303,8 +304,8 @@ struct NodeView: View {
         }
         .offset(
             CGSize(
-                width: dragOffsetForNode.width + editingLeadingAnchorOffsetX,
-                height: dragOffsetForNode.height
+                width: editingLeadingAnchorOffsetX,
+                height: 0
             )
         )
         .onChange(of: isEditing) { _, editing in
@@ -317,29 +318,39 @@ struct NodeView: View {
         }
         .gesture(
             isEditing ? nil :
-            DragGesture(minimumDistance: 3)
-                .onChanged { value in
-                    if isMultiSelected && viewModel.selectedNodeIDs.count > 1 {
-                        viewModel.moveSelectedNodes(by: value.translation)
-                    } else {
-                        dragOffset = value.translation
-                        viewModel.nodeDragOffset[node.id] = value.translation
-                    }
+            DragGesture(minimumDistance: 3, coordinateSpace: .named(KommitCanvasCoordinateSpace.viewportName))
+                .updating($isNodeDragGestureActive) { _, state, _ in
+                    state = true
                 }
-                .onEnded { value in
-                    if isMultiSelected && viewModel.selectedNodeIDs.count > 1 {
-                        viewModel.commitSelectedNodesMove(by: value.translation)
-                    } else {
-                        let newPosition = CGPoint(
-                            x: node.position.x + value.translation.width,
-                            y: node.position.y + value.translation.height
-                        )
-                        dragOffset = .zero
-                        viewModel.nodeDragOffset.removeValue(forKey: node.id)
-                        viewModel.moveNode(node.id, to: newPosition)
-                    }
+                .onChanged { value in
+                    hasActiveNodeDrag = true
+                    let s = max(canvasScale, 0.000_1)
+                    let canvasTranslation = CGSize(
+                        width: value.translation.width / s,
+                        height: value.translation.height / s
+                    )
+                    onNodeDragChanged(
+                        node.id,
+                        value.location,
+                        canvasTranslation,
+                        isMultiSelected && viewModel.selectedNodeIDs.count > 1
+                    )
+                }
+                .onEnded { _ in
+                    hasActiveNodeDrag = false
+                    onNodeDragEnded()
                 }
         )
+        .onChange(of: isNodeDragGestureActive) { _, isActive in
+            guard !isActive, hasActiveNodeDrag else { return }
+            hasActiveNodeDrag = false
+            onNodeDragCancelled()
+        }
+        .onDisappear {
+            guard hasActiveNodeDrag else { return }
+            hasActiveNodeDrag = false
+            onNodeDragCancelled()
+        }
         .onHover { isHovering = $0 }
         .sheet(item: $plannedDateSheetToken) { token in
             CalendarDatePickerSheet(

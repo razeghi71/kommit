@@ -14,6 +14,13 @@ private enum SelectionMarqueeAutoScroll {
 }
 
 struct CanvasView: View {
+    private struct ActiveNodeDrag {
+        let nodeIDs: Set<UUID>
+        var pointerInViewport: CGPoint
+        var translation: CGSize
+        var autoscrollAdjust: CGSize = .zero
+    }
+
     @ObservedObject var viewModel: KommitViewModel
 
     @State private var panOffset: CGSize = .zero
@@ -27,6 +34,8 @@ struct CanvasView: View {
     @State private var selectionAnchorCanvas: CGPoint? = nil
     @State private var viewportSize: CGSize = .zero
     @State private var selectionEdgeEnteredAt: Date? = nil
+    @State private var activeNodeDrag: ActiveNodeDrag? = nil
+    @State private var nodeDragEdgeEnteredAt: Date? = nil
     @State private var lastAppliedCanvasFocusToken: UUID?
 
     var body: some View {
@@ -145,8 +154,8 @@ struct CanvasView: View {
                     // Edges layer
                     ForEach(viewModel.edges) { edge in
                         EdgeShape(
-                            from: viewModel.effectivePosition(edge.parent.id),
-                            to: viewModel.effectivePosition(edge.child.id),
+                            from: effectiveNodePosition(edge.parent.id),
+                            to: effectiveNodePosition(edge.child.id),
                             fromSize: viewModel.nodeSizes[edge.parent.id] ?? NodeDefaults.size,
                             toSize: viewModel.nodeSizes[edge.child.id] ?? NodeDefaults.size,
                             isSelected: viewModel.selectedEdgeID == edge.id,
@@ -162,7 +171,7 @@ struct CanvasView: View {
                     // Preview edge while dragging
                     if let drag = viewModel.edgeDrag {
                         EdgeShape(
-                            from: viewModel.effectivePosition(drag.sourceNodeID),
+                            from: effectiveNodePosition(drag.sourceNodeID),
                             to: drag.currentPoint,
                             fromSize: viewModel.nodeSizes[drag.sourceNodeID] ?? NodeDefaults.size,
                             targetMode: .pointTip,
@@ -173,8 +182,26 @@ struct CanvasView: View {
 
                     // Nodes layer
                     ForEach(viewModel.visibleNodes) { node in
-                        NodeView(node: node, viewModel: viewModel)
-                            .position(node.position)
+                        NodeView(
+                            node: node,
+                            viewModel: viewModel,
+                            canvasScale: currentScale,
+                            onNodeDragChanged: { nodeID, pointerInViewport, translation, useMultiSelection in
+                                updateNodeDrag(
+                                    nodeID: nodeID,
+                                    pointerInViewport: pointerInViewport,
+                                    translation: translation,
+                                    useMultiSelection: useMultiSelection
+                                )
+                            },
+                            onNodeDragEnded: {
+                                commitActiveNodeDrag()
+                            },
+                            onNodeDragCancelled: {
+                                cancelActiveNodeDrag()
+                            }
+                        )
+                        .position(effectiveNodePosition(node.id))
                     }
                 }
                 .coordinateSpace(name: "canvas")
@@ -186,6 +213,8 @@ struct CanvasView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .coordinateSpace(name: KommitCanvasCoordinateSpace.viewportName)
 
                 if showRecenterAffordance {
                     Button {
@@ -230,29 +259,56 @@ struct CanvasView: View {
                 applyCanvasFocusIfNeeded(viewportSize: newSize)
             }
             .onReceive(Timer.publish(every: 1 / 60, on: .main, in: .common).autoconnect()) { _ in
-                guard let end = selectionEnd,
-                    let anchor = selectionAnchorCanvas
-                else { return }
                 let sz = viewportSize
                 guard sz.width > 1, sz.height > 1 else { return }
-                let edgeDelta = selectionEdgePanDelta(point: end, in: sz)
+                let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
+                let liveScale = scale * gestureScale
+
+                if let end = selectionEnd, let anchor = selectionAnchorCanvas {
+                    let edgeDelta = selectionEdgePanDelta(point: end, in: sz)
+                    guard edgeDelta != .zero,
+                        let entered = selectionEdgeEnteredAt,
+                        Date().timeIntervalSince(entered) >= SelectionMarqueeAutoScroll.dwellSeconds
+                    else { return }
+
+                    panOffset.width += edgeDelta.width
+                    panOffset.height += edgeDelta.height
+                    let canvasRect = marqueeCanvasRect(
+                        anchorCanvas: anchor,
+                        endScreen: end,
+                        offset: panOffset,
+                        scale: liveScale,
+                        center: c
+                    )
+                    viewModel.selectNodesInRect(canvasRect)
+                    return
+                }
+
+                guard var drag = activeNodeDrag else {
+                    nodeDragEdgeEnteredAt = nil
+                    return
+                }
+
+                let edgeDelta = selectionEdgePanDelta(point: drag.pointerInViewport, in: sz)
+                if edgeDelta != .zero {
+                    if nodeDragEdgeEnteredAt == nil {
+                        nodeDragEdgeEnteredAt = Date()
+                    }
+                } else {
+                    nodeDragEdgeEnteredAt = nil
+                }
                 guard edgeDelta != .zero,
-                    let entered = selectionEdgeEnteredAt,
+                    let entered = nodeDragEdgeEnteredAt,
                     Date().timeIntervalSince(entered) >= SelectionMarqueeAutoScroll.dwellSeconds
                 else { return }
 
-                let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
-                let liveScale = scale * gestureScale
                 panOffset.width += edgeDelta.width
                 panOffset.height += edgeDelta.height
-                let canvasRect = marqueeCanvasRect(
-                    anchorCanvas: anchor,
-                    endScreen: end,
-                    offset: panOffset,
-                    scale: liveScale,
-                    center: c
+                drag.autoscrollAdjust = CGSize(
+                    width: drag.autoscrollAdjust.width - edgeDelta.width / liveScale,
+                    height: drag.autoscrollAdjust.height - edgeDelta.height / liveScale
                 )
-                viewModel.selectNodesInRect(canvasRect)
+                activeNodeDrag = drag
             }
             .onChange(of: currentScale) { _, newScale in
                 viewModel.canvasScale = newScale
@@ -305,12 +361,83 @@ struct CanvasView: View {
                         magnifyFocalCanvasPoint = nil
                     }
             )
+            .onDisappear {
+                cancelActiveNodeDrag()
+            }
             .contentShape(Rectangle())
             .clipped()
         }
         .onChange(of: viewModel.fileLoadID) {
+            cancelActiveNodeDrag()
             centerOnNodes(viewportSize: NSApplication.shared.windows.first?.frame.size ?? CGSize(width: 1200, height: 800))
         }
+    }
+
+    private func effectiveNodePosition(_ nodeID: UUID) -> CGPoint {
+        guard let node = viewModel.nodes[nodeID] else { return .zero }
+        guard let drag = activeNodeDrag, drag.nodeIDs.contains(nodeID) else { return node.position }
+        return CGPoint(
+            x: node.position.x + drag.translation.width + drag.autoscrollAdjust.width,
+            y: node.position.y + drag.translation.height + drag.autoscrollAdjust.height
+        )
+    }
+
+    private func updateNodeDrag(
+        nodeID: UUID,
+        pointerInViewport: CGPoint,
+        translation: CGSize,
+        useMultiSelection: Bool
+    ) {
+        let nodeIDs: Set<UUID>
+        let autoscrollAdjust: CGSize
+
+        if let drag = activeNodeDrag, drag.nodeIDs.contains(nodeID) {
+            nodeIDs = drag.nodeIDs
+            autoscrollAdjust = drag.autoscrollAdjust
+        } else {
+            nodeIDs = dragTargetNodeIDs(for: nodeID, useMultiSelection: useMultiSelection)
+            autoscrollAdjust = .zero
+            nodeDragEdgeEnteredAt = nil
+        }
+
+        activeNodeDrag = ActiveNodeDrag(
+            nodeIDs: nodeIDs,
+            pointerInViewport: pointerInViewport,
+            translation: translation,
+            autoscrollAdjust: autoscrollAdjust
+        )
+    }
+
+    private func dragTargetNodeIDs(for nodeID: UUID, useMultiSelection: Bool) -> Set<UUID> {
+        if useMultiSelection, !viewModel.selectedNodeIDs.isEmpty {
+            return viewModel.selectedNodeIDs
+        }
+        return [nodeID]
+    }
+
+    private func commitActiveNodeDrag() {
+        guard let drag = activeNodeDrag else { return }
+        let totalOffset = CGSize(
+            width: drag.translation.width + drag.autoscrollAdjust.width,
+            height: drag.translation.height + drag.autoscrollAdjust.height
+        )
+
+        if drag.nodeIDs.count > 1 {
+            viewModel.commitNodesMove(drag.nodeIDs, by: totalOffset)
+        } else if let nodeID = drag.nodeIDs.first, let node = viewModel.nodes[nodeID] {
+            let newPosition = CGPoint(
+                x: node.position.x + totalOffset.width,
+                y: node.position.y + totalOffset.height
+            )
+            viewModel.moveNode(nodeID, to: newPosition)
+        }
+
+        cancelActiveNodeDrag()
+    }
+
+    private func cancelActiveNodeDrag() {
+        activeNodeDrag = nil
+        nodeDragEdgeEnteredAt = nil
     }
 
     private func centerOnNodes(viewportSize: CGSize) {
