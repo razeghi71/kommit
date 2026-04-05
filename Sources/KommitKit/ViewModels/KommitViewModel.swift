@@ -896,6 +896,19 @@ package final class KommitViewModel: ObservableObject {
         selectedNodeID = ids.first
     }
 
+    /// Selects every node currently visible on the canvas (Tasks view), matching marquee / filter rules.
+    func selectAllVisibleNodes() {
+        commitEditing()
+        let ids = Set(visibleNodes.map(\.id))
+        guard !ids.isEmpty else {
+            clearSelection()
+            return
+        }
+        selectedNodeIDs = ids
+        selectedNodeID = ids.first
+        selectedEdgeID = nil
+    }
+
     func commitNodesMove(_ ids: Set<UUID>, by offset: CGSize) {
         guard !ids.isEmpty else { return }
         saveSnapshot()

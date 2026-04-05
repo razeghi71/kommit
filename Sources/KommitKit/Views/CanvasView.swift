@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private enum CanvasRecenter {
@@ -364,6 +365,11 @@ struct CanvasView: View {
             .onDisappear {
                 cancelActiveNodeDrag()
             }
+            .background(
+                CanvasSelectAllKeyMonitor(viewModel: viewModel)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+            )
             .contentShape(Rectangle())
             .clipped()
         }
@@ -662,4 +668,58 @@ struct CanvasView: View {
         )
     }
 
+}
+
+// MARK: - ⌘A (select all visible nodes)
+
+private final class CanvasSelectAllMonitorHostView: NSView {
+    var onSelectAll: (() -> Void)?
+    private var monitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeMonitor()
+        } else {
+            installMonitorIfNeeded()
+        }
+    }
+
+    private func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let window = self.window, window.isKeyWindow else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Plain ⌘A only — do not consume ⌘⇧A, ⌘⌥A, ⌃⌘A, etc.
+            guard flags.contains(.command) else { return event }
+            let nonSelectAllModifiers = flags.subtracting([.command, .capsLock])
+            guard nonSelectAllModifiers.isEmpty else { return event }
+            let ch = event.charactersIgnoringModifiers ?? ""
+            guard ch == "a" || ch == "A" else { return event }
+            guard CanvasZoomController.canHandleKeyboardShortcut(in: window) else { return event }
+            self.onSelectAll?()
+            return nil
+        }
+    }
+
+    private func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+}
+
+private struct CanvasSelectAllKeyMonitor: NSViewRepresentable {
+    @ObservedObject var viewModel: KommitViewModel
+
+    func makeNSView(context: Context) -> CanvasSelectAllMonitorHostView {
+        CanvasSelectAllMonitorHostView()
+    }
+
+    func updateNSView(_ host: CanvasSelectAllMonitorHostView, context: Context) {
+        host.onSelectAll = { [viewModel] in
+            viewModel.selectAllVisibleNodes()
+        }
+    }
 }
