@@ -87,8 +87,23 @@ struct NodeView: View {
             .allowsHitTesting(false)
     }
 
+    /// Reports the card bounds (fill + border) to the model. Kept separate from `selectionOutlineOverlay`,
+    /// whose negative padding still participates in layout even at 0 opacity and was inflating stored height.
+    private var measuredFrameReporter: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear {
+                    viewModel.updateNodeMeasuredFrame(id: node.id, size: geo.size)
+                }
+                .onChange(of: geo.size) { _, newSize in
+                    viewModel.updateNodeMeasuredFrame(id: node.id, size: newSize)
+                }
+        }
+    }
+
     private var nodeSize: CGSize {
-        node.frameSize
+        let size = viewModel.effectiveNodeSize(for: node.id)
+        return size == .zero ? node.frameSize : size
     }
 
     private static let plannedDateFormatter: DateFormatter = {
@@ -119,17 +134,6 @@ struct NodeView: View {
     var body: some View {
         ZStack {
             nodeBody
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear {
-                                viewModel.updateNodeMeasuredFrame(id: node.id, size: geo.size)
-                            }
-                            .onChange(of: geo.size) { _, newSize in
-                                viewModel.updateNodeMeasuredFrame(id: node.id, size: newSize)
-                            }
-                    }
-                )
                 .overlay(alignment: .topLeading) {
                     if showNodeRanks, let degree = viewModel.nodeDegrees[node.id] {
                         Text("\(degree)")
@@ -280,8 +284,8 @@ struct NodeView: View {
             }
         }
         .frame(
-            minWidth: CGFloat(node.width),
-            minHeight: CGFloat(node.height),
+            minWidth: nodeSize.width,
+            minHeight: nodeSize.height,
             alignment: .topLeading
         )
         .gesture(
@@ -348,6 +352,8 @@ struct NodeView: View {
                 displayNodeBody
             }
         }
+        .background(measuredFrameReporter)
+        .overlay(selectionOutlineOverlay)
     }
 
     private var editingNodeBody: some View {
@@ -368,7 +374,6 @@ struct NodeView: View {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .stroke(nodeColor ?? Color.accentColor, lineWidth: 1.5)
             )
-            .overlay(selectionOutlineOverlay)
             .onChange(of: editText) { _, newValue in
                 viewModel.updateNodeText(node.id, text: newValue)
             }
@@ -409,7 +414,6 @@ struct NodeView: View {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .stroke(borderStroke, style: borderStyle)
         )
-        .overlay(selectionOutlineOverlay)
         .onTapGesture(count: 1) {
             if NSEvent.modifierFlags.contains(.shift) {
                 // Shift-click: toggle in multi-selection

@@ -18,8 +18,12 @@ struct CanvasView: View {
     private struct ActiveNodeDrag {
         let nodeIDs: Set<UUID>
         var pointerInViewport: CGPoint
-        var translation: CGSize
+        /// Cumulative canvas translation from the drag gesture (excludes autoscroll and snap).
+        var gestureTranslation: CGSize
         var autoscrollAdjust: CGSize = .zero
+        /// Extra canvas delta so edges/centers align to nearby nodes.
+        var snapAdjustment: CGSize = .zero
+        var alignment: CanvasAlignmentSnap.Result = .init(snapDelta: .zero, verticals: [], horizontals: [])
     }
 
     @ObservedObject var viewModel: KommitViewModel
@@ -157,8 +161,8 @@ struct CanvasView: View {
                         EdgeShape(
                             from: effectiveNodeCenter(edge.parent.id),
                             to: effectiveNodeCenter(edge.child.id),
-                            fromSize: edge.parent.frameSize,
-                            toSize: edge.child.frameSize,
+                            fromSize: effectiveNodeFrameSize(edge.parent.id),
+                            toSize: effectiveNodeFrameSize(edge.child.id),
                             isSelected: viewModel.selectedEdgeID == edge.id,
                             onTap: {
                                 viewModel.commitEditing()
@@ -174,7 +178,7 @@ struct CanvasView: View {
                         EdgeShape(
                             from: effectiveNodeCenter(drag.sourceNodeID),
                             to: drag.currentPoint,
-                            fromSize: viewModel.nodes[drag.sourceNodeID]?.frameSize ?? NodeDefaults.size,
+                            fromSize: effectiveNodeFrameSize(drag.sourceNodeID),
                             targetMode: .pointTip,
                             color: .accentColor.opacity(0.5),
                             dash: [6, 4]
@@ -213,6 +217,17 @@ struct CanvasView: View {
                 ScrollWheelHandler(panOffset: $panOffset, scale: $scale, viewportSize: geo.size)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
+
+                if let drag = activeNodeDrag,
+                    !drag.alignment.verticals.isEmpty || !drag.alignment.horizontals.isEmpty
+                {
+                    alignmentGuidesOverlay(
+                        alignment: drag.alignment,
+                        viewportCenter: center,
+                        offset: totalOffset,
+                        scale: currentScale
+                    )
+                }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .coordinateSpace(name: KommitCanvasCoordinateSpace.viewportName)
@@ -309,6 +324,8 @@ struct CanvasView: View {
                     width: drag.autoscrollAdjust.width - edgeDelta.width / liveScale,
                     height: drag.autoscrollAdjust.height - edgeDelta.height / liveScale
                 )
+                let viewportCenter = CGPoint(x: sz.width / 2, y: sz.height / 2)
+                recomputeAlignmentDuringDrag(drag: &drag, viewportCenter: viewportCenter, scale: liveScale)
                 activeNodeDrag = drag
             }
             .onChange(of: currentScale) { _, newScale in
@@ -381,13 +398,22 @@ struct CanvasView: View {
 
     private func effectiveNodeCenter(_ nodeID: UUID) -> CGPoint {
         guard let node = viewModel.nodes[nodeID] else { return .zero }
-        guard let drag = activeNodeDrag, drag.nodeIDs.contains(nodeID) else { return node.center }
+        guard let drag = activeNodeDrag, drag.nodeIDs.contains(nodeID) else {
+            // `node` exists ⇒ `effectiveNodeRect` / `effectiveNodeCenter` are always defined.
+            return viewModel.effectiveNodeCenter(for: nodeID)!
+        }
+        let size = viewModel.effectiveNodeSize(for: nodeID)
         let translation = CGSize(
-            width: drag.translation.width + drag.autoscrollAdjust.width,
-            height: drag.translation.height + drag.autoscrollAdjust.height
+            width: drag.gestureTranslation.width + drag.autoscrollAdjust.width + drag.snapAdjustment.width,
+            height: drag.gestureTranslation.height + drag.autoscrollAdjust.height + drag.snapAdjustment.height
         )
         let (nx, ny) = CanvasIntegerGeometry.snappedOrigin(nodeX: node.x, nodeY: node.y, translation: translation)
-        return CanvasIntegerGeometry.center(x: nx, y: ny, width: node.width, height: node.height)
+        return CGPoint(x: CGFloat(nx) + size.width / 2, y: CGFloat(ny) + size.height / 2)
+    }
+
+    private func effectiveNodeFrameSize(_ nodeID: UUID) -> CGSize {
+        let size = viewModel.effectiveNodeSize(for: nodeID)
+        return size == .zero ? NodeDefaults.size : size
     }
 
     private func updateNodeDrag(
@@ -408,12 +434,16 @@ struct CanvasView: View {
             nodeDragEdgeEnteredAt = nil
         }
 
-        activeNodeDrag = ActiveNodeDrag(
+        var next = ActiveNodeDrag(
             nodeIDs: nodeIDs,
             pointerInViewport: pointerInViewport,
-            translation: translation,
+            gestureTranslation: translation,
             autoscrollAdjust: autoscrollAdjust
         )
+        let viewportCenter = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+        let liveScale = scale * gestureScale
+        recomputeAlignmentDuringDrag(drag: &next, viewportCenter: viewportCenter, scale: liveScale)
+        activeNodeDrag = next
     }
 
     private func dragTargetNodeIDs(for nodeID: UUID, useMultiSelection: Bool) -> Set<UUID> {
@@ -426,8 +456,8 @@ struct CanvasView: View {
     private func commitActiveNodeDrag() {
         guard let drag = activeNodeDrag else { return }
         let totalOffset = CGSize(
-            width: drag.translation.width + drag.autoscrollAdjust.width,
-            height: drag.translation.height + drag.autoscrollAdjust.height
+            width: drag.gestureTranslation.width + drag.autoscrollAdjust.width + drag.snapAdjustment.width,
+            height: drag.gestureTranslation.height + drag.autoscrollAdjust.height + drag.snapAdjustment.height
         )
 
         if drag.nodeIDs.count > 1 {
@@ -457,7 +487,11 @@ struct CanvasView: View {
             panOffset = .zero
             return
         }
-        let centers = viewModel.nodes.values.map(\.center)
+        let centers = viewModel.nodes.keys.compactMap(viewModel.effectiveNodeCenter(for:))
+        guard !centers.isEmpty else {
+            panOffset = .zero
+            return
+        }
         let avgX = centers.map(\.x).reduce(0, +) / CGFloat(centers.count)
         let avgY = centers.map(\.y).reduce(0, +) / CGFloat(centers.count)
         panOffset = CGSize(
@@ -474,7 +508,7 @@ struct CanvasView: View {
         magnifyFocalCanvasPoint = nil
         scale = 1.0
         gestureScale = 1.0
-        let c = node.center
+        let c = viewModel.effectiveNodeCenter(for: nodeID) ?? node.center
         panOffset = CGSize(
             width: viewportSize.width / 2 - c.x,
             height: viewportSize.height / 2 - c.y
@@ -544,7 +578,7 @@ struct CanvasView: View {
     ) -> Bool {
         let viewportBounds = CGRect(origin: .zero, size: viewportSize)
         for node in viewModel.visibleNodes {
-            let canvasRect = CGRect(
+            let canvasRect = viewModel.effectiveNodeRect(for: node.id) ?? CGRect(
                 x: CGFloat(node.x),
                 y: CGFloat(node.y),
                 width: CGFloat(node.width),
@@ -669,6 +703,131 @@ struct CanvasView: View {
         )
     }
 
+    private enum NodeDragAlignment {
+        /// ~8pt on screen regardless of zoom.
+        static func thresholdCanvas(scale: CGFloat) -> CGFloat {
+            8 / max(scale, 0.000_1)
+        }
+    }
+
+    private func referenceNodesInViewportForAlignment(
+        excluding dragged: Set<UUID>,
+        viewportCenter: CGPoint,
+        offset: CGSize,
+        scale: CGFloat
+    ) -> [KommitNode] {
+        let bounds = CGRect(origin: .zero, size: viewportSize)
+        guard bounds.width > 1, bounds.height > 1 else { return [] }
+        return viewModel.visibleNodes.filter { node in
+            guard !dragged.contains(node.id) else { return false }
+            let canvasRect = viewModel.effectiveNodeRect(for: node.id) ?? CGRect(
+                x: CGFloat(node.x),
+                y: CGFloat(node.y),
+                width: CGFloat(node.width),
+                height: CGFloat(node.height)
+            )
+            let screenRect = canvasBoundsToViewportRect(
+                canvasRect: canvasRect,
+                viewportCenter: viewportCenter,
+                offset: offset,
+                scale: scale
+            )
+            return screenRect.intersects(bounds)
+        }
+    }
+
+    private func recomputeAlignmentDuringDrag(
+        drag: inout ActiveNodeDrag,
+        viewportCenter: CGPoint,
+        scale: CGFloat
+    ) {
+        let combined = CGSize(
+            width: drag.gestureTranslation.width + drag.autoscrollAdjust.width,
+            height: drag.gestureTranslation.height + drag.autoscrollAdjust.height
+        )
+        let threshold = NodeDragAlignment.thresholdCanvas(scale: scale)
+        let refs = referenceNodesInViewportForAlignment(
+            excluding: drag.nodeIDs,
+            viewportCenter: viewportCenter,
+            offset: panOffset,
+            scale: scale
+        )
+        drag.alignment = CanvasAlignmentSnap.compute(
+            draggedNodeIDs: drag.nodeIDs,
+            nodes: viewModel.nodes,
+            referenceNodes: refs,
+            combinedTranslation: combined,
+            thresholdCanvas: threshold,
+            measuredNodeSizes: viewModel.measuredNodeSizes
+        )
+        drag.snapAdjustment = drag.alignment.snapDelta
+    }
+
+    private func alignmentMarkersCanvasPoints(_ alignment: CanvasAlignmentSnap.Result) -> [CGPoint] {
+        var pts: [CGPoint] = []
+        pts.reserveCapacity(32)
+        for g in alignment.verticals {
+            pts.append(contentsOf: g.markers)
+        }
+        for g in alignment.horizontals {
+            pts.append(contentsOf: g.markers)
+        }
+        return pts
+    }
+
+    @ViewBuilder
+    private func alignmentGuidesOverlay(
+        alignment: CanvasAlignmentSnap.Result,
+        viewportCenter: CGPoint,
+        offset: CGSize,
+        scale: CGFloat
+    ) -> some View {
+        let strokeColor = Color(red: 0.95, green: 0.22, blue: 0.22).opacity(0.92)
+        let markerCanvasPoints = alignmentMarkersCanvasPoints(alignment)
+        ZStack {
+            ForEach(Array(alignment.verticals.enumerated()), id: \.offset) { _, g in
+                let p1 = canvasPointToScreen(CGPoint(x: g.x, y: g.y1), offset: offset, scale: scale, center: viewportCenter)
+                let p2 = canvasPointToScreen(CGPoint(x: g.x, y: g.y2), offset: offset, scale: scale, center: viewportCenter)
+                Path { path in
+                    path.move(to: p1)
+                    path.addLine(to: p2)
+                }
+                .stroke(strokeColor, lineWidth: 1)
+            }
+            ForEach(Array(alignment.horizontals.enumerated()), id: \.offset) { _, g in
+                let p1 = canvasPointToScreen(CGPoint(x: g.x1, y: g.y), offset: offset, scale: scale, center: viewportCenter)
+                let p2 = canvasPointToScreen(CGPoint(x: g.x2, y: g.y), offset: offset, scale: scale, center: viewportCenter)
+                Path { path in
+                    path.move(to: p1)
+                    path.addLine(to: p2)
+                }
+                .stroke(strokeColor, lineWidth: 1)
+            }
+            ForEach(Array(markerCanvasPoints.enumerated()), id: \.offset) { _, canvasPt in
+                let s = canvasPointToScreen(canvasPt, offset: offset, scale: scale, center: viewportCenter)
+                AlignmentGuideCrosshair(center: s, color: strokeColor)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+    }
+
+}
+
+private struct AlignmentGuideCrosshair: View {
+    let center: CGPoint
+    let color: Color
+
+    var body: some View {
+        let s: CGFloat = 3.5
+        Path { p in
+            p.move(to: CGPoint(x: center.x - s, y: center.y - s))
+            p.addLine(to: CGPoint(x: center.x + s, y: center.y + s))
+            p.move(to: CGPoint(x: center.x + s, y: center.y - s))
+            p.addLine(to: CGPoint(x: center.x - s, y: center.y + s))
+        }
+        .stroke(color, lineWidth: 1)
+    }
 }
 
 // MARK: - ⌘A (select all visible nodes)

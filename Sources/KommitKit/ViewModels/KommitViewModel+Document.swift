@@ -6,6 +6,7 @@ extension KommitViewModel {
     /// Clears the document and resets the suppress flag so the start hub shows.
     package func resetToStartHub() {
         nodes.removeAll()
+        clearMeasuredNodeSizeCache()
         commitments.removeAll()
         forecasts.removeAll()
         financialTransactions.removeAll()
@@ -110,6 +111,7 @@ extension KommitViewModel {
 
     package func newBoard(suppressStartHub: Bool = false) {
         nodes.removeAll()
+        clearMeasuredNodeSizeCache()
         commitments.removeAll()
         forecasts.removeAll()
         financialTransactions.removeAll()
@@ -198,6 +200,7 @@ extension KommitViewModel {
             let loaded = decodeBoard(from: data)
         else { return false }
         nodes = Dictionary(uniqueKeysWithValues: loaded.nodes.map { ($0.id, $0) })
+        clearMeasuredNodeSizeCache()
         commitments = Dictionary(uniqueKeysWithValues: (loaded.commitments ?? []).map { ($0.id, $0) })
         forecasts = Dictionary(uniqueKeysWithValues: (loaded.forecasts ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })

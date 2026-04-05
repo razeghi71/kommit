@@ -57,6 +57,8 @@ package final class KommitViewModel: ObservableObject {
     @Published package var financeCalendarStartingBalance: Double = 0
     /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
     @Published private(set) var canvasRecenterToken: UInt64 = 0
+    /// Transient layout measurements from `NodeView`; used for rendering/hit-testing without mutating document data.
+    @Published private(set) var measuredNodeSizes: [UUID: CGSize] = [:]
 
     private var lastAppliedCanvasRecenterToken: UInt64 = 0
     let userDefaults = UserDefaults.standard
@@ -140,6 +142,7 @@ package final class KommitViewModel: ObservableObject {
         guard let snapshot = undoStack.popLast() else { return }
         redoStack.append(nodes)
         nodes = snapshot
+        clearMeasuredNodeSizeCache()
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -149,6 +152,7 @@ package final class KommitViewModel: ObservableObject {
         guard let snapshot = redoStack.popLast() else { return }
         undoStack.append(nodes)
         nodes = snapshot
+        clearMeasuredNodeSizeCache()
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -293,8 +297,9 @@ package final class KommitViewModel: ObservableObject {
 
         let cw = NodeDefaults.width
         let ch = NodeDefaults.height
-        let pcx = CGFloat(parent.x) + CGFloat(parent.width) / 2
-        let pcy = CGFloat(parent.y) + CGFloat(parent.height) / 2
+        let parentCenter = effectiveNodeCenter(for: parentID) ?? parent.center
+        let pcx = parentCenter.x
+        let pcy = parentCenter.y
         let offset: CGFloat = 180
         let halfWCg = CGFloat(cw) / 2
         let halfHCg = CGFloat(ch) / 2
@@ -337,19 +342,41 @@ package final class KommitViewModel: ObservableObject {
         nodes[id]?.y = y
     }
 
-    /// Updates stored integer size from laid-out bounds (no undo snapshot; marks document dirty).
+    /// Updates transient integer size from laid-out bounds.
+    ///
+    /// This cache is intentionally view-only. Layout measurement should drive rendering, hit-testing, and snapping,
+    /// but it must not reposition nodes or mark the document dirty.
     func updateNodeMeasuredFrame(id: UUID, size: CGSize) {
-        guard var node = nodes[id] else { return }
-        let (nw, nh) = CanvasIntegerGeometry.sizeSnappedUp(
-            from: size,
-            minWidth: NodeDefaults.minWidth,
-            minHeight: NodeDefaults.minHeight
-        )
-        guard nw != node.width || nh != node.height else { return }
-        node.width = nw
-        node.height = nh
-        nodes[id] = node
-        isDirty = true
+        guard nodes[id] != nil else { return }
+        let nw = max(NodeDefaults.minWidth, Int(size.width.rounded(.up)))
+        let nh = max(1, Int(size.height.rounded(.up)))
+        let measured = CGSize(width: CGFloat(nw), height: CGFloat(nh))
+        guard measuredNodeSizes[id] != measured else { return }
+        measuredNodeSizes[id] = measured
+    }
+
+    func effectiveNodeSize(for id: UUID) -> CGSize {
+        if let measured = measuredNodeSizes[id] {
+            return measured
+        }
+        guard let node = nodes[id] else { return .zero }
+        return CGSize(width: CGFloat(node.width), height: CGFloat(node.height))
+    }
+
+    func effectiveNodeRect(for id: UUID) -> CGRect? {
+        guard let node = nodes[id] else { return nil }
+        let size = effectiveNodeSize(for: id)
+        return CGRect(x: CGFloat(node.x), y: CGFloat(node.y), width: size.width, height: size.height)
+    }
+
+    func effectiveNodeCenter(for id: UUID) -> CGPoint? {
+        guard let rect = effectiveNodeRect(for: id) else { return nil }
+        return CGPoint(x: rect.midX, y: rect.midY)
+    }
+
+    func clearMeasuredNodeSizeCache() {
+        guard !measuredNodeSizes.isEmpty else { return }
+        measuredNodeSizes.removeAll()
     }
 
     func setNodeStatus(_ id: UUID, statusID: UUID?) {
@@ -413,13 +440,7 @@ package final class KommitViewModel: ObservableObject {
         var rects: [(UUID, CGRect)] = []
         rects.reserveCapacity(targets.count)
         for id in targets {
-            guard let node = nodes[id] else { continue }
-            let rect = CGRect(
-                x: CGFloat(node.x),
-                y: CGFloat(node.y),
-                width: CGFloat(node.width),
-                height: CGFloat(node.height)
-            )
+            guard let rect = effectiveNodeRect(for: id) else { continue }
             rects.append((id, rect))
         }
         guard rects.count >= 2 else { return }
@@ -435,7 +456,7 @@ package final class KommitViewModel: ObservableObject {
         case .right:
             let ref = Int(rects.map(\.1.maxX).max()!.rounded())
             for (id, _) in rects {
-                guard let w = nodes[id]?.width else { continue }
+                let w = Int(effectiveNodeSize(for: id).width.rounded())
                 nodes[id]?.x = ref - w
             }
         case .top:
@@ -446,7 +467,7 @@ package final class KommitViewModel: ObservableObject {
         case .bottom:
             let ref = Int(rects.map(\.1.maxY).max()!.rounded())
             for (id, _) in rects {
-                guard let h = nodes[id]?.height else { continue }
+                let h = Int(effectiveNodeSize(for: id).height.rounded())
                 nodes[id]?.y = ref - h
             }
         case .horizontalCenter:
@@ -454,7 +475,7 @@ package final class KommitViewModel: ObservableObject {
             let maxX = rects.map(\.1.maxX).max()!
             let refX = (minX + maxX) / 2
             for (id, _) in rects {
-                guard let w = nodes[id]?.width else { continue }
+                let w = effectiveNodeSize(for: id).width
                 nodes[id]?.x = Int((Double(refX) - Double(w) / 2).rounded())
             }
         case .verticalCenter:
@@ -462,7 +483,7 @@ package final class KommitViewModel: ObservableObject {
             let maxY = rects.map(\.1.maxY).max()!
             let refY = (minY + maxY) / 2
             for (id, _) in rects {
-                guard let h = nodes[id]?.height else { continue }
+                let h = effectiveNodeSize(for: id).height
                 nodes[id]?.y = Int((Double(refY) - Double(h) / 2).rounded())
             }
         }
@@ -757,6 +778,7 @@ package final class KommitViewModel: ObservableObject {
             nodes[childID] = child
         }
         nodes.removeValue(forKey: id)
+        measuredNodeSizes.removeValue(forKey: id)
         if editingNodeID == id {
             editingNodeID = nil
         }
@@ -775,13 +797,8 @@ package final class KommitViewModel: ObservableObject {
 
     /// Find a node at the given canvas point (excluding a specific node)
     func nodeAt(point: CGPoint, excluding: UUID) -> UUID? {
-        for (id, node) in nodes where id != excluding && isNodeVisible(id) {
-            let rect = CGRect(
-                x: CGFloat(node.x),
-                y: CGFloat(node.y),
-                width: CGFloat(node.width),
-                height: CGFloat(node.height)
-            )
+        for id in nodes.keys where id != excluding && isNodeVisible(id) {
+            guard let rect = effectiveNodeRect(for: id) else { continue }
             if rect.contains(point) {
                 return id
             }
@@ -904,7 +921,7 @@ package final class KommitViewModel: ObservableObject {
         var ids = Set<UUID>()
         for (id, node) in nodes {
             guard isNodeVisible(id) else { continue }
-            let nodeRect = CGRect(
+            let nodeRect = effectiveNodeRect(for: id) ?? CGRect(
                 x: CGFloat(node.x),
                 y: CGFloat(node.y),
                 width: CGFloat(node.width),

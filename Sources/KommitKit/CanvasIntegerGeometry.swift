@@ -19,10 +19,4 @@ enum CanvasIntegerGeometry {
         let y = Int((Double(point.y) - Double(height) / 2).rounded())
         return (x, y)
     }
-
-    static func sizeSnappedUp(from size: CGSize, minWidth: Int, minHeight: Int) -> (width: Int, height: Int) {
-        let w = max(minWidth, Int(size.width.rounded(.up)))
-        let h = max(minHeight, Int(size.height.rounded(.up)))
-        return (w, h)
-    }
 }

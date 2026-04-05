@@ -3,7 +3,8 @@ import Foundation
 enum NodeDefaults {
     static let width = 132
     static let height = 44
-    /// Minimum measured frame (matches `NodeView` layout).
+    /// Minimum width for layout and persistence (`NodeView` `minWidth`). Default height for new nodes; intrinsic
+    /// card height can be smaller once measured (single-line rows are usually below 44pt).
     static let minWidth = 100
     static let minHeight = 44
     /// For APIs that still need `CGSize` (e.g. previews).
