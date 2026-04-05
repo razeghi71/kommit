@@ -27,6 +27,9 @@ struct ScrollWheelHandler: NSViewRepresentable {
                 return event
             }
             let loc = hostView.convert(event.locationInWindow, from: nil)
+            guard hostView.bounds.contains(loc) else {
+                return event
+            }
             let deltaZoom = event.scrollingDeltaY + event.scrollingDeltaX
             let k = event.hasPreciseScrollingDeltas
                 ? CanvasZoomController.preciseScrollExponent
