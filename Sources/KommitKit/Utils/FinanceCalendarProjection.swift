@@ -62,6 +62,16 @@ package struct FinanceCalendarForecastRealizedLine: Identifiable, Equatable {
     }
 }
 
+/// Summary numbers for the per-day footer under the scroll area in `FinanceCalendarView`.
+package enum FinanceCalendarColumnFooter: Equatable {
+    /// Past days: realized in/out only (no end-of-day balance).
+    case pastFlows(inAmount: Double, outAmount: Double)
+    /// Today: paid / recorded so far vs still expected (unpaid commitments + forecast projections).
+    case todaySplit(inSoFar: Double, outSoFar: Double, expectedIn: Double, expectedOut: Double)
+    /// Future: projected in/out for the day (unpaid commitments + forecast), same basis as the prior “In / Out” lines.
+    case futureExpected(inAmount: Double, outAmount: Double)
+}
+
 package struct FinanceCalendarDayColumn: Identifiable {
     package var id: Date { displayDayStart }
     package let displayDayStart: Date
@@ -89,6 +99,7 @@ package struct FinanceCalendarDayColumn: Identifiable {
     /// Unpaid amounts due before today, mirrored on today’s column (expenses reduce today’s start balance).
     package let overdueUnpaidExpenseTotal: Double
     package let overdueUnpaidIncomeTotal: Double
+    package let footer: FinanceCalendarColumnFooter
 }
 
 package enum FinanceCalendarProjection {
@@ -376,6 +387,32 @@ package enum FinanceCalendarProjection {
                 sortedFrExp = s.frExp
             }
 
+            let footer: FinanceCalendarColumnFooter
+            if dayCursor < todayStart {
+                let commitmentIn = sortedIncome.reduce(0) { $0 + $1.amount }
+                let commitmentOut = sortedExpense.reduce(0) { $0 + $1.amount }
+                footer = .pastFlows(
+                    inAmount: commitmentIn + bucket.forecastRealizedIncomeTotal,
+                    outAmount: commitmentOut + bucket.forecastRealizedExpenseTotal
+                )
+            } else if isTodayCol {
+                let inPaid = sortedIncome.filter(\.isPaid).reduce(0) { $0 + $1.amount }
+                let inUnpaid = sortedIncome.filter { !$0.isPaid }.reduce(0) { $0 + $1.amount }
+                let outPaid = sortedExpense.filter(\.isPaid).reduce(0) { $0 + $1.amount }
+                let outUnpaid = sortedExpense.filter { !$0.isPaid }.reduce(0) { $0 + $1.amount }
+                footer = .todaySplit(
+                    inSoFar: inPaid + bucket.forecastRealizedIncomeTotal,
+                    outSoFar: outPaid + bucket.forecastRealizedExpenseTotal,
+                    expectedIn: inUnpaid + bucket.forecastIncomeTotal,
+                    expectedOut: outUnpaid + bucket.forecastExpenseTotal
+                )
+            } else {
+                footer = .futureExpected(
+                    inAmount: incomeTotal + fcIncTotal,
+                    outAmount: expenseTotal + fcExpTotal
+                )
+            }
+
             columns.append(
                 FinanceCalendarDayColumn(
                     displayDayStart: dayCursor,
@@ -395,7 +432,8 @@ package enum FinanceCalendarProjection {
                     forecastRealizedExpenseLines: sortedFrExp,
                     endOfDayBalance: balance,
                     overdueUnpaidExpenseTotal: isTodayCol ? overdueExpenseSum : 0,
-                    overdueUnpaidIncomeTotal: isTodayCol ? overdueIncomeSum : 0
+                    overdueUnpaidIncomeTotal: isTodayCol ? overdueIncomeSum : 0,
+                    footer: footer
                 )
             )
 

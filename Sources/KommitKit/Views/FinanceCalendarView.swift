@@ -13,8 +13,6 @@ package struct FinanceCalendarView: View {
     private let columnWidth: CGFloat = 228
     /// Space left under day columns so they don’t sit flush on the window bottom.
     private let calendarColumnBottomInset: CGFloat = 20
-    /// Per-column balance / In–Out footer height; added to scroll when that footer is hidden (past days).
-    private let financeCalendarBalanceFooterHeight: CGFloat = 96
     /// Cap history so we do not build tens of thousands of day columns or scan decades of months.
     private let calendarLookbackDays = 548
 
@@ -232,10 +230,7 @@ package struct FinanceCalendarView: View {
     ) -> some View {
         let cal = calendar
         let isPastDay = column.displayDayStart < todayStart
-        let scrollHeight =
-            isPastDay
-            ? max(188, middleHeight + financeCalendarBalanceFooterHeight)
-            : middleHeight
+        let scrollHeight = middleHeight
         return VStack(alignment: .leading, spacing: 0) {
             dayHeader(date: column.displayDayStart, isToday: isToday, calendar: cal)
 
@@ -287,41 +282,21 @@ package struct FinanceCalendarView: View {
             }
             .frame(height: scrollHeight)
 
-            if !isPastDay {
-                Divider()
-                    .padding(.horizontal, 8)
+            Divider()
+                .padding(.horizontal, 8)
 
-                let totalIn = column.incomeTotal + column.forecastIncomeTotal
-                let totalOut = column.expenseTotal + column.forecastExpenseTotal
-                let isNegativeEndBalance = column.endOfDayBalance < 0
-
-                // Expand to fill height below the scroll so the negative-balance fill isn’t shorter than the column.
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(viewModel.formatFinancialCurrency(column.endOfDayBalance))
-                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(isNegativeEndBalance ? Self.harmonizedExpenseRed : Color.primary)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("In \(formatCalendarFlowAmount(totalIn, leadingPlusWhenPositive: true))")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Text("Out \(formatCalendarFlowAmount(totalOut, leadingPlusWhenPositive: false))")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        if isToday, column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
-                            overdueStartCaption(column: column)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 12)
-                .padding(.top, 14)
-                .padding(.bottom, 14)
-                .background {
-                    if isNegativeEndBalance {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Self.harmonizedExpenseRed.opacity(0.14))
-                    }
+            VStack(alignment: .leading, spacing: 9) {
+                financeCalendarDayFooter(column: column)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 12)
+            .padding(.top, 14)
+            .padding(.bottom, 14)
+            .background {
+                if !isPastDay, column.endOfDayBalance < 0 {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Self.harmonizedExpenseRed.opacity(0.14))
                 }
             }
         }
@@ -359,6 +334,60 @@ package struct FinanceCalendarView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 11)
         .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private func financeCalendarDayFooter(column: FinanceCalendarDayColumn) -> some View {
+        switch column.footer {
+        case .pastFlows(let inAmount, let outAmount):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("In \(formatCalendarFlowAmount(inAmount, leadingPlusWhenPositive: true))")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Text("Out \(formatCalendarFlowAmount(outAmount, leadingPlusWhenPositive: false))")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        case .todaySplit(let inSoFar, let outSoFar, let expectedIn, let expectedOut):
+            let isNegativeEndBalance = column.endOfDayBalance < 0
+            VStack(alignment: .leading, spacing: 9) {
+                Text(viewModel.formatFinancialCurrency(column.endOfDayBalance))
+                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isNegativeEndBalance ? Self.harmonizedExpenseRed : Color.primary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("In till now \(formatCalendarFlowAmount(inSoFar, leadingPlusWhenPositive: true))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text("Out till now \(formatCalendarFlowAmount(outSoFar, leadingPlusWhenPositive: false))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text("Expected out \(formatCalendarFlowAmount(expectedOut, leadingPlusWhenPositive: false))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text("Expected in till day end \(formatCalendarFlowAmount(expectedIn, leadingPlusWhenPositive: true))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    if column.overdueUnpaidExpenseTotal > 0 || column.overdueUnpaidIncomeTotal > 0 {
+                        overdueStartCaption(column: column)
+                    }
+                }
+            }
+        case .futureExpected(let inAmount, let outAmount):
+            let isNegativeEndBalance = column.endOfDayBalance < 0
+            VStack(alignment: .leading, spacing: 9) {
+                Text(viewModel.formatFinancialCurrency(column.endOfDayBalance))
+                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isNegativeEndBalance ? Self.harmonizedExpenseRed : Color.primary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("In \(formatCalendarFlowAmount(inAmount, leadingPlusWhenPositive: true))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text("Out \(formatCalendarFlowAmount(outAmount, leadingPlusWhenPositive: false))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private func overdueStartCaption(column: FinanceCalendarDayColumn) -> some View {
