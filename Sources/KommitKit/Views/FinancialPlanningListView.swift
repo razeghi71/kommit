@@ -44,19 +44,6 @@ struct FinancialPlanningListView: View {
                 .font(.system(size: 16, weight: .semibold))
 
             Spacer()
-
-            Menu {
-                Button("New commitment…") {
-                    showingAddCommitment = true
-                }
-                Button("New forecast…") {
-                    showingAddForecast = true
-                }
-            } label: {
-                Image(systemName: "plus")
-            }
-            .menuStyle(.borderedButton)
-            .fixedSize()
         }
         .padding(12)
     }
@@ -109,7 +96,9 @@ struct FinancialPlanningListView: View {
 
     private var commitmentsSection: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Commitments")
+            sectionHeader("Commitments") {
+                showingAddCommitment = true
+            }
             if sortedCommitments.isEmpty {
                 emptyHint(commitmentsEmptyHint)
             }
@@ -129,7 +118,9 @@ struct FinancialPlanningListView: View {
 
     private var forecastsSection: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Forecasts")
+            sectionHeader("Forecasts") {
+                showingAddForecast = true
+            }
             if sortedForecasts.isEmpty {
                 emptyHint("No forecasts yet. Add typical spending like groceries or lunch—shown in the calendar as estimates, not due items.")
             }
@@ -155,15 +146,23 @@ struct FinancialPlanningListView: View {
             .accessibilityHidden(true)
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .textCase(.uppercase)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.top, 14)
-            .padding(.bottom, 6)
+    private func sectionHeader(_ title: String, onAdd: @escaping () -> Void) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            
+            Spacer()
+            
+            Button(action: onAdd) {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(KommitIconButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
     }
 
     private func emptyHint(_ text: String) -> some View {

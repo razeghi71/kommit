@@ -109,24 +109,32 @@ struct TagInputField: View {
                     }
                 }
 
-                TextField(tags.isEmpty ? "Type to add tags…" : "Add another…", text: $input)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .focused($isInputFocused)
-                    .onSubmit { addTag(input) }
+                ZStack(alignment: .leading) {
+                    if input.isEmpty {
+                        Text(tags.isEmpty ? "Type to add tags…" : "Add another…")
+                            .foregroundColor(Color.primary.opacity(0.3))
+                            .font(.system(size: 13))
+                    }
+                    TextField("", text: $input)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .focused($isInputFocused)
+                        .onSubmit { addTag(input) }
+                }
             }
             .padding(8)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .textBackgroundColor))
+                    .fill(Color.primary.opacity(0.06))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(
-                        isInputFocused ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.12),
-                        lineWidth: isInputFocused ? 1.5 : 0.5
+                        isInputFocused ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.12),
+                        lineWidth: isInputFocused ? 2 : 1
                     )
             )
+            .padding(1)
             .contentShape(Rectangle())
             .onTapGesture { isInputFocused = true }
 

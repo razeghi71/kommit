@@ -37,7 +37,7 @@ struct ForecastEditorView: View {
                 form.padding(20)
             }
         }
-        .frame(width: 500, height: 520)
+        .frame(minWidth: 500, idealWidth: 500, maxWidth: 500, minHeight: 520, idealHeight: 520, maxHeight: 520)
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadForecastForEditor() }
         .onChange(of: selectedPreset) { old, new in
@@ -130,8 +130,7 @@ struct ForecastEditorView: View {
                     Text("Name")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
-                    TextField("e.g. Lunch, Groceries", text: $name)
-                        .textFieldStyle(.roundedBorder)
+                    KommitTextField("e.g. Lunch, Groceries", text: $name)
                 }
 
                 HStack(spacing: 12) {
@@ -146,10 +145,11 @@ struct ForecastEditorView: View {
                         Text("Amount")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
-                        HStack(spacing: 2) {
-                            Text(viewModel.effectiveFinancialCurrencySymbol).foregroundStyle(.tertiary)
-                            TextField("0.00", text: $amount)
-                                .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 8) {
+                            Text(viewModel.effectiveFinancialCurrencySymbol)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                            KommitTextField("0.00", text: $amount)
                         }
                     }
                     .frame(width: 130)

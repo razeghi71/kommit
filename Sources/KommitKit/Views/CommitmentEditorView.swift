@@ -70,7 +70,7 @@ struct CommitmentEditorView: View {
                 form.padding(20)
             }
         }
-        .frame(width: 500, height: 500)
+        .frame(minWidth: 500, idealWidth: 500, maxWidth: 500, minHeight: 500, idealHeight: 500, maxHeight: 500)
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadCommitment() }
         .onChange(of: selectedPreset) { old, new in
@@ -159,8 +159,7 @@ struct CommitmentEditorView: View {
                     Text("Name")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
-                    TextField("e.g. Rent, Salary", text: $name)
-                        .textFieldStyle(.roundedBorder)
+                    KommitTextField("e.g. Rent, Salary", text: $name)
                 }
 
                 HStack(spacing: 12) {
@@ -175,10 +174,11 @@ struct CommitmentEditorView: View {
                         Text("Amount")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
-                        HStack(spacing: 2) {
-                            Text(viewModel.effectiveFinancialCurrencySymbol).foregroundStyle(.tertiary)
-                            TextField("0.00", text: $amount)
-                                .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 8) {
+                            Text(viewModel.effectiveFinancialCurrencySymbol)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                            KommitTextField("0.00", text: $amount)
                         }
                     }
                     .frame(width: 130)

@@ -45,7 +45,7 @@ struct TransactionsListView: View {
             } label: {
                 Image(systemName: "plus")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(KommitIconButtonStyle())
         }
         .padding(12)
     }

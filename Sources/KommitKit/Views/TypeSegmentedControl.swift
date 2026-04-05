@@ -25,5 +25,6 @@ struct TypeSegmentedControl: View {
         .padding(2)
         .background(Color.primary.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .fixedSize(horizontal: true, vertical: false)
     }
 }

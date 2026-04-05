@@ -137,7 +137,7 @@ struct TransactionEditorView: View {
                 form.padding(20)
             }
         }
-        .frame(width: 520, height: 650)
+        .frame(minWidth: 520, idealWidth: 520, maxWidth: 520, minHeight: 650, idealHeight: 650, maxHeight: 650)
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadTransaction() }
         .onChange(of: type) { _, newType in
@@ -233,13 +233,11 @@ struct TransactionEditorView: View {
 
     private var planningSection: some View {
         FieldGroup("Planning") {
-            Picker("", selection: $planningMode) {
-                ForEach(TransactionPlanningMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
+            KommitRadioGroup(
+                selection: $planningMode,
+                options: Array(TransactionPlanningMode.allCases),
+                titleFor: { $0.title }
+            )
         }
     }
 
@@ -249,8 +247,7 @@ struct TransactionEditorView: View {
                 Text("Name")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                TextField("e.g. Groceries, Rent payment", text: $name)
-                    .textFieldStyle(.roundedBorder)
+                KommitTextField("e.g. Groceries, Rent payment", text: $name)
             }
 
             SelectableCalendarDateRow(title: "Date", date: $date)
@@ -265,8 +262,7 @@ struct TransactionEditorView: View {
                 Text("Note")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                TextField("Optional", text: $note)
-                    .textFieldStyle(.roundedBorder)
+                KommitTextField("Optional", text: $note)
             }
         }
     }
@@ -316,13 +312,11 @@ struct TransactionEditorView: View {
                 amountField
             case .forecast:
                 if type == .expense {
-                    Picker("", selection: $recordedPaymentMode) {
-                        ForEach(RecordedTransactionPaymentMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
+                    KommitRadioGroup(
+                        selection: $recordedPaymentMode,
+                        options: Array(RecordedTransactionPaymentMode.allCases),
+                        titleFor: { $0.title }
+                    )
                     .onChange(of: recordedPaymentMode) { _, newMode in
                         switch newMode {
                         case .payNow:
@@ -381,10 +375,11 @@ struct TransactionEditorView: View {
             Text("Amount")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
-            HStack(spacing: 2) {
-                Text(viewModel.effectiveFinancialCurrencySymbol).foregroundStyle(.tertiary)
-                TextField("0.00", text: $amount)
-                    .textFieldStyle(.roundedBorder)
+            HStack(spacing: 8) {
+                Text(viewModel.effectiveFinancialCurrencySymbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                KommitTextField("0.00", text: $amount)
             }
         }
     }
