@@ -56,6 +56,7 @@ struct FinancialPlanningListView: View {
                 Image(systemName: "plus")
             }
             .menuStyle(.borderedButton)
+            .fixedSize()
         }
         .padding(12)
     }

@@ -12,6 +12,7 @@ struct KommitApp: App {
     var body: some Scene {
         Window("Kommit", id: "main") {
             ContentView(viewModel: viewModel)
+                .frame(minWidth: 800, idealWidth: 1200, minHeight: 600, idealHeight: 800)
                 .onAppear {
                     appDelegate.viewModel = viewModel
                     appDelegate.openMainWindowAction = { [openWindow] in openWindow(id: "main") }

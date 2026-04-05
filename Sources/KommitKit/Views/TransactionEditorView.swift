@@ -372,13 +372,7 @@ struct TransactionEditorView: View {
             Text("Type")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
-            Picker("", selection: $type) {
-                ForEach(FinancialFlowType.allCases, id: \.self) { value in
-                    Text(value.displayName).tag(value)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            TypeSegmentedControl(selection: $type)
         }
     }
 

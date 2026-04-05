@@ -139,13 +139,7 @@ struct ForecastEditorView: View {
                         Text("Type")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
-                        Picker("", selection: $type) {
-                            ForEach(FinancialFlowType.allCases, id: \.self) { t in
-                                Text(t.displayName).tag(t)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        TypeSegmentedControl(selection: $type)
                     }
 
                     VStack(alignment: .leading, spacing: 3) {
