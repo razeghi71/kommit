@@ -172,7 +172,7 @@ struct KommitDocument: Codable {
     }
 
     init(
-        format: Int = 4,
+        format: Int = 5,
         nodes: [KommitNode],
         settings: KommitBoardSettings?,
         financeCalendarStartingBalance: Double? = nil,

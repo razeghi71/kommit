@@ -1,13 +1,23 @@
 import Foundation
 
 enum NodeDefaults {
-    static let size = CGSize(width: 132, height: 44)
+    static let width = 132
+    static let height = 44
+    /// Minimum measured frame (matches `NodeView` layout).
+    static let minWidth = 100
+    static let minHeight = 44
+    /// For APIs that still need `CGSize` (e.g. previews).
+    static var size: CGSize { CGSize(width: CGFloat(width), height: CGFloat(height)) }
 }
 
 struct KommitNode: Identifiable, Equatable, Codable {
     let id: UUID
     var text: String
-    var position: CGPoint
+    /// Integer canvas coordinates: top-left of the node frame (implicit 1pt grid).
+    var x: Int
+    var y: Int
+    var width: Int
+    var height: Int
     var parentIDs: Set<UUID>
     var statusID: UUID?
     var plannedDate: Date?
@@ -17,7 +27,10 @@ struct KommitNode: Identifiable, Equatable, Codable {
     init(
         id: UUID = UUID(),
         text: String = "",
-        position: CGPoint,
+        x: Int,
+        y: Int,
+        width: Int = NodeDefaults.width,
+        height: Int = NodeDefaults.height,
         parentIDs: Set<UUID> = [],
         statusID: UUID? = nil,
         plannedDate: Date? = nil,
@@ -26,7 +39,10 @@ struct KommitNode: Identifiable, Equatable, Codable {
     ) {
         self.id = id
         self.text = text
-        self.position = position
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
         self.parentIDs = parentIDs
         self.statusID = statusID
         self.plannedDate = plannedDate
@@ -34,10 +50,21 @@ struct KommitNode: Identifiable, Equatable, Codable {
         self.isHidden = isHidden
     }
 
+    var center: CGPoint {
+        CanvasIntegerGeometry.center(x: x, y: y, width: width, height: height)
+    }
+
+    var frameSize: CGSize {
+        CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case text
-        case position
+        case x
+        case y
+        case width
+        case height
         case parentIDs
         case statusID
         case plannedDate
@@ -49,7 +76,10 @@ struct KommitNode: Identifiable, Equatable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         text = try container.decode(String.self, forKey: .text)
-        position = try container.decode(CGPoint.self, forKey: .position)
+        x = try container.decode(Int.self, forKey: .x)
+        y = try container.decode(Int.self, forKey: .y)
+        width = try container.decode(Int.self, forKey: .width)
+        height = try container.decode(Int.self, forKey: .height)
         parentIDs = try container.decode(Set<UUID>.self, forKey: .parentIDs)
         statusID = try container.decodeIfPresent(UUID.self, forKey: .statusID)
         plannedDate = try container.decodeIfPresent(Date.self, forKey: .plannedDate)
@@ -61,7 +91,10 @@ struct KommitNode: Identifiable, Equatable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(text, forKey: .text)
-        try container.encode(position, forKey: .position)
+        try container.encode(x, forKey: .x)
+        try container.encode(y, forKey: .y)
+        try container.encode(width, forKey: .width)
+        try container.encode(height, forKey: .height)
         try container.encode(parentIDs, forKey: .parentIDs)
         try container.encodeIfPresent(statusID, forKey: .statusID)
         try container.encodeIfPresent(plannedDate, forKey: .plannedDate)

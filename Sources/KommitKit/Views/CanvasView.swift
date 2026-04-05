@@ -155,10 +155,10 @@ struct CanvasView: View {
                     // Edges layer
                     ForEach(viewModel.edges) { edge in
                         EdgeShape(
-                            from: effectiveNodePosition(edge.parent.id),
-                            to: effectiveNodePosition(edge.child.id),
-                            fromSize: viewModel.nodeSizes[edge.parent.id] ?? NodeDefaults.size,
-                            toSize: viewModel.nodeSizes[edge.child.id] ?? NodeDefaults.size,
+                            from: effectiveNodeCenter(edge.parent.id),
+                            to: effectiveNodeCenter(edge.child.id),
+                            fromSize: edge.parent.frameSize,
+                            toSize: edge.child.frameSize,
                             isSelected: viewModel.selectedEdgeID == edge.id,
                             onTap: {
                                 viewModel.commitEditing()
@@ -172,9 +172,9 @@ struct CanvasView: View {
                     // Preview edge while dragging
                     if let drag = viewModel.edgeDrag {
                         EdgeShape(
-                            from: effectiveNodePosition(drag.sourceNodeID),
+                            from: effectiveNodeCenter(drag.sourceNodeID),
                             to: drag.currentPoint,
-                            fromSize: viewModel.nodeSizes[drag.sourceNodeID] ?? NodeDefaults.size,
+                            fromSize: viewModel.nodes[drag.sourceNodeID]?.frameSize ?? NodeDefaults.size,
                             targetMode: .pointTip,
                             color: .accentColor.opacity(0.5),
                             dash: [6, 4]
@@ -202,7 +202,7 @@ struct CanvasView: View {
                                 cancelActiveNodeDrag()
                             }
                         )
-                        .position(effectiveNodePosition(node.id))
+                        .position(effectiveNodeCenter(node.id))
                     }
                 }
                 .coordinateSpace(name: "canvas")
@@ -379,13 +379,15 @@ struct CanvasView: View {
         }
     }
 
-    private func effectiveNodePosition(_ nodeID: UUID) -> CGPoint {
+    private func effectiveNodeCenter(_ nodeID: UUID) -> CGPoint {
         guard let node = viewModel.nodes[nodeID] else { return .zero }
-        guard let drag = activeNodeDrag, drag.nodeIDs.contains(nodeID) else { return node.position }
-        return CGPoint(
-            x: node.position.x + drag.translation.width + drag.autoscrollAdjust.width,
-            y: node.position.y + drag.translation.height + drag.autoscrollAdjust.height
+        guard let drag = activeNodeDrag, drag.nodeIDs.contains(nodeID) else { return node.center }
+        let translation = CGSize(
+            width: drag.translation.width + drag.autoscrollAdjust.width,
+            height: drag.translation.height + drag.autoscrollAdjust.height
         )
+        let (nx, ny) = CanvasIntegerGeometry.snappedOrigin(nodeX: node.x, nodeY: node.y, translation: translation)
+        return CanvasIntegerGeometry.center(x: nx, y: ny, width: node.width, height: node.height)
     }
 
     private func updateNodeDrag(
@@ -431,11 +433,12 @@ struct CanvasView: View {
         if drag.nodeIDs.count > 1 {
             viewModel.commitNodesMove(drag.nodeIDs, by: totalOffset)
         } else if let nodeID = drag.nodeIDs.first, let node = viewModel.nodes[nodeID] {
-            let newPosition = CGPoint(
-                x: node.position.x + totalOffset.width,
-                y: node.position.y + totalOffset.height
+            let (nx, ny) = CanvasIntegerGeometry.snappedOrigin(
+                nodeX: node.x,
+                nodeY: node.y,
+                translation: totalOffset
             )
-            viewModel.moveNode(nodeID, to: newPosition)
+            viewModel.moveNode(nodeID, x: nx, y: ny)
         }
 
         cancelActiveNodeDrag()
@@ -454,9 +457,9 @@ struct CanvasView: View {
             panOffset = .zero
             return
         }
-        let positions = viewModel.nodes.values.map(\.position)
-        let avgX = positions.map(\.x).reduce(0, +) / CGFloat(positions.count)
-        let avgY = positions.map(\.y).reduce(0, +) / CGFloat(positions.count)
+        let centers = viewModel.nodes.values.map(\.center)
+        let avgX = centers.map(\.x).reduce(0, +) / CGFloat(centers.count)
+        let avgY = centers.map(\.y).reduce(0, +) / CGFloat(centers.count)
         panOffset = CGSize(
             width: viewportSize.width / 2 - avgX,
             height: viewportSize.height / 2 - avgY
@@ -471,9 +474,10 @@ struct CanvasView: View {
         magnifyFocalCanvasPoint = nil
         scale = 1.0
         gestureScale = 1.0
+        let c = node.center
         panOffset = CGSize(
-            width: viewportSize.width / 2 - node.position.x,
-            height: viewportSize.height / 2 - node.position.y
+            width: viewportSize.width / 2 - c.x,
+            height: viewportSize.height / 2 - c.y
         )
     }
 
@@ -540,14 +544,11 @@ struct CanvasView: View {
     ) -> Bool {
         let viewportBounds = CGRect(origin: .zero, size: viewportSize)
         for node in viewModel.visibleNodes {
-            let size = viewModel.nodeSizes[node.id] ?? NodeDefaults.size
-            let halfW = size.width / 2
-            let halfH = size.height / 2
             let canvasRect = CGRect(
-                x: node.position.x - halfW,
-                y: node.position.y - halfH,
-                width: size.width,
-                height: size.height
+                x: CGFloat(node.x),
+                y: CGFloat(node.y),
+                width: CGFloat(node.width),
+                height: CGFloat(node.height)
             )
             let screenRect = canvasBoundsToViewportRect(
                 canvasRect: canvasRect,

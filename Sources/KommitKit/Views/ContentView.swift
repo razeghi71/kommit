@@ -220,8 +220,8 @@ package struct ContentView: View {
             $0.text.localizedCaseInsensitiveContains(trimmedSearchText)
         }
         return matches.sorted { lhs, rhs in
-            if lhs.position.y != rhs.position.y { return lhs.position.y < rhs.position.y }
-            if lhs.position.x != rhs.position.x { return lhs.position.x < rhs.position.x }
+            if lhs.y != rhs.y { return lhs.y < rhs.y }
+            if lhs.x != rhs.x { return lhs.x < rhs.x }
             return lhs.id.uuidString < rhs.id.uuidString
         }
     }

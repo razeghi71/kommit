@@ -37,7 +37,6 @@ package final class KommitViewModel: ObservableObject {
     @Published var edgeDrag: EdgeDragState?
     @Published var dropTargetNodeID: UUID?
     @Published package var selectedEdgeID: String?
-    @Published var nodeSizes: [UUID: CGSize] = [:]
     @Published var currentFileURL: URL?
     @Published var fileLoadID: UUID = UUID()
     @Published var canvasScale: CGFloat = 1.0
@@ -278,7 +277,12 @@ package final class KommitViewModel: ObservableObject {
 
     func addNode(at position: CGPoint) {
         saveSnapshot()
-        let node = KommitNode(position: position)
+        let (x, y) = CanvasIntegerGeometry.topLeftCentered(
+            at: position,
+            width: NodeDefaults.width,
+            height: NodeDefaults.height
+        )
+        let node = KommitNode(x: x, y: y)
         nodes[node.id] = node
         beginEditing(nodeID: node.id, recordUndoSnapshot: false)
     }
@@ -287,42 +291,65 @@ package final class KommitViewModel: ObservableObject {
         guard let parent = nodes[parentID] else { return }
         saveSnapshot()
 
+        let cw = NodeDefaults.width
+        let ch = NodeDefaults.height
+        let pcx = CGFloat(parent.x) + CGFloat(parent.width) / 2
+        let pcy = CGFloat(parent.y) + CGFloat(parent.height) / 2
         let offset: CGFloat = 180
-        let position: CGPoint
+        let halfWCg = CGFloat(cw) / 2
+        let halfHCg = CGFloat(ch) / 2
+
+        let (childX, childY): (Int, Int)
         if let dropPoint {
-            let halfW = NodeDefaults.size.width / 2
-            let halfH = NodeDefaults.size.height / 2
+            let center: CGPoint
             switch direction {
             case .top:
-                // Pointer indicates the new node's bottom edge.
-                position = CGPoint(x: dropPoint.x, y: dropPoint.y - halfH)
+                center = CGPoint(x: dropPoint.x, y: dropPoint.y - halfHCg)
             case .bottom:
-                // Pointer indicates the new node's top edge.
-                position = CGPoint(x: dropPoint.x, y: dropPoint.y + halfH)
+                center = CGPoint(x: dropPoint.x, y: dropPoint.y + halfHCg)
             case .left:
-                // Pointer indicates the new node's right edge.
-                position = CGPoint(x: dropPoint.x - halfW, y: dropPoint.y)
+                center = CGPoint(x: dropPoint.x - halfWCg, y: dropPoint.y)
             case .right:
-                // Pointer indicates the new node's left edge.
-                position = CGPoint(x: dropPoint.x + halfW, y: dropPoint.y)
+                center = CGPoint(x: dropPoint.x + halfWCg, y: dropPoint.y)
             }
+            childX = Int((Double(center.x) - Double(cw) / 2).rounded())
+            childY = Int((Double(center.y) - Double(ch) / 2).rounded())
         } else {
+            let center: CGPoint
             switch direction {
-            case .top: position = CGPoint(x: parent.position.x, y: parent.position.y - offset)
-            case .bottom: position = CGPoint(x: parent.position.x, y: parent.position.y + offset)
-            case .left: position = CGPoint(x: parent.position.x - offset, y: parent.position.y)
-            case .right: position = CGPoint(x: parent.position.x + offset, y: parent.position.y)
+            case .top: center = CGPoint(x: pcx, y: pcy - offset)
+            case .bottom: center = CGPoint(x: pcx, y: pcy + offset)
+            case .left: center = CGPoint(x: pcx - offset, y: pcy)
+            case .right: center = CGPoint(x: pcx + offset, y: pcy)
             }
+            childX = Int((Double(center.x) - Double(cw) / 2).rounded())
+            childY = Int((Double(center.y) - Double(ch) / 2).rounded())
         }
 
-        let child = KommitNode(position: position, parentIDs: [parentID])
+        let child = KommitNode(x: childX, y: childY, width: cw, height: ch, parentIDs: [parentID])
         nodes[child.id] = child
         beginEditing(nodeID: child.id, recordUndoSnapshot: false)
     }
 
-    func moveNode(_ id: UUID, to position: CGPoint) {
+    func moveNode(_ id: UUID, x: Int, y: Int) {
         saveSnapshot()
-        nodes[id]?.position = position
+        nodes[id]?.x = x
+        nodes[id]?.y = y
+    }
+
+    /// Updates stored integer size from laid-out bounds (no undo snapshot; marks document dirty).
+    func updateNodeMeasuredFrame(id: UUID, size: CGSize) {
+        guard var node = nodes[id] else { return }
+        let (nw, nh) = CanvasIntegerGeometry.sizeSnappedUp(
+            from: size,
+            minWidth: NodeDefaults.minWidth,
+            minHeight: NodeDefaults.minHeight
+        )
+        guard nw != node.width || nh != node.height else { return }
+        node.width = nw
+        node.height = nh
+        nodes[id] = node
+        isDirty = true
     }
 
     func setNodeStatus(_ id: UUID, statusID: UUID?) {
@@ -377,7 +404,7 @@ package final class KommitViewModel: ObservableObject {
         return selectedSet.contains(anchorNodeID) ? selectedSet : [anchorNodeID]
     }
 
-    /// Aligns every node in `ids` to the same edge or axis-center as the selection’s bounding box (uses stored positions and measured sizes).
+    /// Aligns every node in `ids` to the same edge or axis-center as the selection’s bounding box (integer frames).
     func alignNodes(_ ids: Set<UUID>, alignment: NodeAlignment) {
         guard ids.count >= 2 else { return }
         let targets = ids.filter { nodes[$0] != nil }
@@ -387,12 +414,11 @@ package final class KommitViewModel: ObservableObject {
         rects.reserveCapacity(targets.count)
         for id in targets {
             guard let node = nodes[id] else { continue }
-            let size = nodeSizes[id] ?? NodeDefaults.size
             let rect = CGRect(
-                x: node.position.x - size.width / 2,
-                y: node.position.y - size.height / 2,
-                width: size.width,
-                height: size.height
+                x: CGFloat(node.x),
+                y: CGFloat(node.y),
+                width: CGFloat(node.width),
+                height: CGFloat(node.height)
             )
             rects.append((id, rect))
         }
@@ -402,42 +428,42 @@ package final class KommitViewModel: ObservableObject {
 
         switch alignment {
         case .left:
-            let ref = rects.map(\.1.minX).min()!
+            let ref = Int(rects.map(\.1.minX).min()!.rounded())
             for (id, _) in rects {
-                let w = (nodeSizes[id] ?? NodeDefaults.size).width
-                nodes[id]?.position.x = ref + w / 2
+                nodes[id]?.x = ref
             }
         case .right:
-            let ref = rects.map(\.1.maxX).max()!
+            let ref = Int(rects.map(\.1.maxX).max()!.rounded())
             for (id, _) in rects {
-                let w = (nodeSizes[id] ?? NodeDefaults.size).width
-                nodes[id]?.position.x = ref - w / 2
+                guard let w = nodes[id]?.width else { continue }
+                nodes[id]?.x = ref - w
             }
         case .top:
-            let ref = rects.map(\.1.minY).min()!
+            let ref = Int(rects.map(\.1.minY).min()!.rounded())
             for (id, _) in rects {
-                let h = (nodeSizes[id] ?? NodeDefaults.size).height
-                nodes[id]?.position.y = ref + h / 2
+                nodes[id]?.y = ref
             }
         case .bottom:
-            let ref = rects.map(\.1.maxY).max()!
+            let ref = Int(rects.map(\.1.maxY).max()!.rounded())
             for (id, _) in rects {
-                let h = (nodeSizes[id] ?? NodeDefaults.size).height
-                nodes[id]?.position.y = ref - h / 2
+                guard let h = nodes[id]?.height else { continue }
+                nodes[id]?.y = ref - h
             }
         case .horizontalCenter:
             let minX = rects.map(\.1.minX).min()!
             let maxX = rects.map(\.1.maxX).max()!
             let refX = (minX + maxX) / 2
             for (id, _) in rects {
-                nodes[id]?.position.x = refX
+                guard let w = nodes[id]?.width else { continue }
+                nodes[id]?.x = Int((Double(refX) - Double(w) / 2).rounded())
             }
         case .verticalCenter:
             let minY = rects.map(\.1.minY).min()!
             let maxY = rects.map(\.1.maxY).max()!
             let refY = (minY + maxY) / 2
             for (id, _) in rects {
-                nodes[id]?.position.y = refY
+                guard let h = nodes[id]?.height else { continue }
+                nodes[id]?.y = Int((Double(refY) - Double(h) / 2).rounded())
             }
         }
 
@@ -743,13 +769,6 @@ package final class KommitViewModel: ObservableObject {
         editingNodeID = nodeID
     }
 
-    /// Applies horizontal shift after editing so the node’s stored center matches a width change that grew to the right (`deltaX` is half the width delta).
-    func applyEditingHorizontalAnchor(nodeID: UUID, deltaX: CGFloat) {
-        guard deltaX != 0, var node = nodes[nodeID] else { return }
-        node.position.x += deltaX
-        nodes[nodeID] = node
-    }
-
     func commitEditing() {
         editingNodeID = nil
     }
@@ -757,9 +776,13 @@ package final class KommitViewModel: ObservableObject {
     /// Find a node at the given canvas point (excluding a specific node)
     func nodeAt(point: CGPoint, excluding: UUID) -> UUID? {
         for (id, node) in nodes where id != excluding && isNodeVisible(id) {
-            let pos = node.position
-            let size = nodeSizes[id] ?? NodeDefaults.size
-            if abs(point.x - pos.x) <= size.width / 2 && abs(point.y - pos.y) <= size.height / 2 {
+            let rect = CGRect(
+                x: CGFloat(node.x),
+                y: CGFloat(node.y),
+                width: CGFloat(node.width),
+                height: CGFloat(node.height)
+            )
+            if rect.contains(point) {
                 return id
             }
         }
@@ -881,12 +904,11 @@ package final class KommitViewModel: ObservableObject {
         var ids = Set<UUID>()
         for (id, node) in nodes {
             guard isNodeVisible(id) else { continue }
-            let size = nodeSizes[id] ?? NodeDefaults.size
             let nodeRect = CGRect(
-                x: node.position.x - size.width / 2,
-                y: node.position.y - size.height / 2,
-                width: size.width,
-                height: size.height
+                x: CGFloat(node.x),
+                y: CGFloat(node.y),
+                width: CGFloat(node.width),
+                height: CGFloat(node.height)
             )
             if rect.intersects(nodeRect) {
                 ids.insert(id)
@@ -913,12 +935,10 @@ package final class KommitViewModel: ObservableObject {
         guard !ids.isEmpty else { return }
         saveSnapshot()
         for id in ids {
-            if let node = nodes[id] {
-                nodes[id]?.position = CGPoint(
-                    x: node.position.x + offset.width,
-                    y: node.position.y + offset.height
-                )
-            }
+            guard let node = nodes[id] else { continue }
+            let (nx, ny) = CanvasIntegerGeometry.snappedOrigin(nodeX: node.x, nodeY: node.y, translation: offset)
+            nodes[id]?.x = nx
+            nodes[id]?.y = ny
         }
     }
 

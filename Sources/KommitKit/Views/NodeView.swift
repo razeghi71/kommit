@@ -14,9 +14,6 @@ struct NodeView: View {
     @State private var hasActiveNodeDrag = false
     @GestureState private var isNodeDragGestureActive = false
     @FocusState private var textFieldFocused: Bool
-    /// Width at first layout after entering edit mode; used to grow the editor to the right without moving the leading edge until commit.
-    @State private var editingLayoutBaselineWidth: CGFloat?
-    @State private var lastMeasuredSize: CGSize = .zero
     @State private var plannedDateSheetToken: NodePlannedDateSheetToken?
 
     private var isEditing: Bool {
@@ -91,28 +88,7 @@ struct NodeView: View {
     }
 
     private var nodeSize: CGSize {
-        viewModel.nodeSizes[node.id] ?? NodeDefaults.size
-    }
-
-    private var editingLeadingAnchorOffsetX: CGFloat {
-        guard isEditing, let baseline = editingLayoutBaselineWidth else { return 0 }
-        let w =
-            lastMeasuredSize.width > 0
-            ? lastMeasuredSize.width
-            : (viewModel.nodeSizes[node.id]?.width ?? baseline)
-        return (w - baseline) / 2
-    }
-
-    private func persistEditingLeadingAnchorIfNeeded() {
-        guard let baseline = editingLayoutBaselineWidth else { return }
-        editingLayoutBaselineWidth = nil
-        let finalWidth =
-            lastMeasuredSize.width > 0
-            ? lastMeasuredSize.width
-            : (viewModel.nodeSizes[node.id]?.width ?? baseline)
-        let deltaX = (finalWidth - baseline) / 2
-        guard deltaX != 0 else { return }
-        viewModel.applyEditingHorizontalAnchor(nodeID: node.id, deltaX: deltaX)
+        node.frameSize
     }
 
     private static let plannedDateFormatter: DateFormatter = {
@@ -147,19 +123,10 @@ struct NodeView: View {
                     GeometryReader { geo in
                         Color.clear
                             .onAppear {
-                                let size = geo.size
-                                viewModel.nodeSizes[node.id] = size
-                                lastMeasuredSize = size
-                                if isEditing, editingLayoutBaselineWidth == nil {
-                                    editingLayoutBaselineWidth = size.width
-                                }
+                                viewModel.updateNodeMeasuredFrame(id: node.id, size: geo.size)
                             }
                             .onChange(of: geo.size) { _, newSize in
-                                viewModel.nodeSizes[node.id] = newSize
-                                lastMeasuredSize = newSize
-                                if isEditing, editingLayoutBaselineWidth == nil {
-                                    editingLayoutBaselineWidth = newSize.width
-                                }
+                                viewModel.updateNodeMeasuredFrame(id: node.id, size: newSize)
                             }
                     }
                 )
@@ -312,20 +279,11 @@ struct NodeView: View {
                 plusButtons
             }
         }
-        .offset(
-            CGSize(
-                width: editingLeadingAnchorOffsetX,
-                height: 0
-            )
+        .frame(
+            minWidth: CGFloat(node.width),
+            minHeight: CGFloat(node.height),
+            alignment: .topLeading
         )
-        .onChange(of: isEditing) { _, editing in
-            if editing {
-                let w = viewModel.nodeSizes[node.id]?.width ?? lastMeasuredSize.width
-                editingLayoutBaselineWidth = w > 0 ? w : nil
-            } else {
-                persistEditingLeadingAnchorIfNeeded()
-            }
-        }
         .gesture(
             isEditing ? nil :
             DragGesture(minimumDistance: 3, coordinateSpace: .named(KommitCanvasCoordinateSpace.viewportName))
