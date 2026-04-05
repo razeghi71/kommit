@@ -254,10 +254,10 @@ package struct FinanceCalendarView: View {
                         if hasForecastProjections {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(column.forecastIncomeLines) { line in
-                                    forecastEventBlock(line, displayDayStart: column.displayDayStart, isPastDay: isPastDay)
+                                    forecastEventBlock(line, displayDayStart: column.displayDayStart, isPastDay: isPastDay, isToday: isToday)
                                 }
                                 ForEach(column.forecastExpenseLines) { line in
-                                    forecastEventBlock(line, displayDayStart: column.displayDayStart, isPastDay: isPastDay)
+                                    forecastEventBlock(line, displayDayStart: column.displayDayStart, isPastDay: isPastDay, isToday: isToday)
                                 }
                             }
                         }
@@ -480,7 +480,7 @@ package struct FinanceCalendarView: View {
         }
     }
 
-    private func forecastEventBlock(_ line: FinanceCalendarForecastLine, displayDayStart: Date, isPastDay: Bool) -> some View {
+    private func forecastEventBlock(_ line: FinanceCalendarForecastLine, displayDayStart: Date, isPastDay: Bool, isToday: Bool) -> some View {
         let cal = calendar
         let forecast = line.forecast
         let isIncome = forecast.type == .income
@@ -505,7 +505,19 @@ package struct FinanceCalendarView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
-            if isPastDay {
+            
+            if !isPastDay {
+                Text(amountText)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(amountColor)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            
+            if isPastDay || isToday {
+                if isToday {
+                    Spacer().frame(width: 6)
+                }
+                
                 Button {
                     forecastQuickLogPayload = FinanceCalendarForecastQuickLogPayload(
                         forecast: forecast,
@@ -518,11 +530,6 @@ package struct FinanceCalendarView: View {
                         .symbolRenderingMode(.palette)
                 }
                 .buttonStyle(.plain)
-            } else {
-                Text(amountText)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(amountColor)
-                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.vertical, 4)
