@@ -230,6 +230,16 @@ struct NodeView: View {
                             } label: {
                                 Label("Align Bottom", systemImage: "align.vertical.bottom")
                             }
+                            Button {
+                                viewModel.alignNodes(contextMenuTargetNodeIDs, alignment: .horizontalCenter)
+                            } label: {
+                                Label("Align Horizontal Center", systemImage: "align.horizontal.center")
+                            }
+                            Button {
+                                viewModel.alignNodes(contextMenuTargetNodeIDs, alignment: .verticalCenter)
+                            } label: {
+                                Label("Align Vertical Center", systemImage: "align.vertical.center")
+                            }
                         } label: {
                             Label("Align", systemImage: "align.horizontal.center")
                         }

@@ -377,7 +377,7 @@ package final class KommitViewModel: ObservableObject {
         return selectedSet.contains(anchorNodeID) ? selectedSet : [anchorNodeID]
     }
 
-    /// Aligns every node in `ids` to the same minX, maxX, minY, or maxY as the extreme among the selection (uses stored positions and measured sizes).
+    /// Aligns every node in `ids` to the same edge or axis-center as the selection’s bounding box (uses stored positions and measured sizes).
     func alignNodes(_ ids: Set<UUID>, alignment: NodeAlignment) {
         guard ids.count >= 2 else { return }
         let targets = ids.filter { nodes[$0] != nil }
@@ -424,6 +424,20 @@ package final class KommitViewModel: ObservableObject {
             for (id, _) in rects {
                 let h = (nodeSizes[id] ?? NodeDefaults.size).height
                 nodes[id]?.position.y = ref - h / 2
+            }
+        case .horizontalCenter:
+            let minX = rects.map(\.1.minX).min()!
+            let maxX = rects.map(\.1.maxX).max()!
+            let refX = (minX + maxX) / 2
+            for (id, _) in rects {
+                nodes[id]?.position.x = refX
+            }
+        case .verticalCenter:
+            let minY = rects.map(\.1.minY).min()!
+            let maxY = rects.map(\.1.maxY).max()!
+            let refY = (minY + maxY) / 2
+            for (id, _) in rects {
+                nodes[id]?.position.y = refY
             }
         }
 

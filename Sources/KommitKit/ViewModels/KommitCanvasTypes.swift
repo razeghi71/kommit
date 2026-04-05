@@ -12,7 +12,7 @@ enum DragDirection: Sendable {
 
 /// Distribute multi-selected nodes to a common edge using the extreme node on that axis.
 enum NodeAlignment: Sendable {
-    case left, right, top, bottom
+    case left, right, top, bottom, horizontalCenter, verticalCenter
 }
 
 struct EdgeDragState: Equatable {
