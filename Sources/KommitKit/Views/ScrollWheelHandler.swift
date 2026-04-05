@@ -7,13 +7,6 @@ struct ScrollWheelHandler: NSViewRepresentable {
     @Binding var scale: CGFloat
     var viewportSize: CGSize
 
-    private static let scaleMin: CGFloat = 0.2
-    private static let scaleMax: CGFloat = 5.0
-    /// Per-point multiplier exponent when `hasPreciseScrollingDeltas` is true.
-    private static let preciseZoomK: CGFloat = 0.0028
-    /// Per-line multiplier exponent for traditional mouse wheels.
-    private static let lineZoomK: CGFloat = 0.11
-
     func makeNSView(context: Context) -> NSView {
         let view = ScrollWheelReceivingView()
         applyCallbacks(to: view)
@@ -35,28 +28,25 @@ struct ScrollWheelHandler: NSViewRepresentable {
             }
             let loc = hostView.convert(event.locationInWindow, from: nil)
             let deltaZoom = event.scrollingDeltaY + event.scrollingDeltaX
-            let k = event.hasPreciseScrollingDeltas ? Self.preciseZoomK : Self.lineZoomK
+            let k = event.hasPreciseScrollingDeltas
+                ? CanvasZoomController.preciseScrollExponent
+                : CanvasZoomController.lineScrollExponent
 
             if event.modifierFlags.contains(.command), deltaZoom != 0 {
+                guard CanvasZoomController.canHandleKeyboardShortcut(in: hostView.window) else {
+                    return event
+                }
                 DispatchQueue.main.async {
                     let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                    let s = scaleBinding.wrappedValue
-                    var pan = panBinding.wrappedValue
-                    let focalCanvas = Self.canvasPoint(
-                        underScreenPoint: loc,
-                        offset: pan,
-                        scale: s,
-                        center: center
+                    let next = CanvasZoomController.zoom(
+                        offset: panBinding.wrappedValue,
+                        scale: scaleBinding.wrappedValue,
+                        anchor: loc,
+                        center: center,
+                        multiplier: exp(deltaZoom * k)
                     )
-                    let nextScale = Self.clampScale(s * exp(deltaZoom * k))
-                    pan = Self.panOffsetKeepingCanvasPointAtScreen(
-                        canvasPoint: focalCanvas,
-                        screenAnchor: loc,
-                        scale: nextScale,
-                        center: center
-                    )
-                    scaleBinding.wrappedValue = nextScale
-                    panBinding.wrappedValue = pan
+                    scaleBinding.wrappedValue = next.scale
+                    panBinding.wrappedValue = next.offset
                 }
                 return nil
             }
@@ -67,36 +57,6 @@ struct ScrollWheelHandler: NSViewRepresentable {
             }
             return nil
         }
-    }
-
-    private static func clampScale(_ s: CGFloat) -> CGFloat {
-        min(max(s, scaleMin), scaleMax)
-    }
-
-    /// Same mapping as `CanvasView.screenPointToCanvas` (scaleEffect anchor at center).
-    private static func canvasPoint(
-        underScreenPoint point: CGPoint,
-        offset: CGSize,
-        scale: CGFloat,
-        center: CGPoint
-    ) -> CGPoint {
-        CGPoint(
-            x: (point.x - center.x - offset.width) / scale + center.x,
-            y: (point.y - center.y - offset.height) / scale + center.y
-        )
-    }
-
-    private static func panOffsetKeepingCanvasPointAtScreen(
-        canvasPoint: CGPoint,
-        screenAnchor: CGPoint,
-        scale: CGFloat,
-        center: CGPoint
-    ) -> CGSize {
-        let c = center
-        return CGSize(
-            width: screenAnchor.x - c.x - (canvasPoint.x - c.x) * scale,
-            height: screenAnchor.y - c.y - (canvasPoint.y - c.y) * scale
-        )
     }
 
     final class ScrollWheelReceivingView: NSView {

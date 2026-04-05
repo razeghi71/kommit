@@ -6,13 +6,6 @@ private enum CanvasRecenter {
     static let maxComfortScale: CGFloat = 2.75
 }
 
-private enum CanvasKeyboardZoom {
-    /// One step ≈ one line of ⌘-scroll (`ScrollWheelHandler` line-mode `k`, `exp(1 * k)`).
-    private static let lineK: CGFloat = 0.11
-    static let inFactor: CGFloat = exp(lineK)
-    static var outFactor: CGFloat { 1 / inFactor }
-}
-
 private enum SelectionMarqueeAutoScroll {
     static let edgeMargin: CGFloat = 56
     static let maxStep: CGFloat = 14
@@ -345,10 +338,9 @@ struct CanvasView: View {
             .onChange(of: viewModel.canvasRecenterToken) { _, _ in
                 applyCanvasRecenterIfPending(viewportSize: geo.size)
             }
-            .onChange(of: viewModel.canvasKeyboardZoomPulse) { _, pulse in
-                guard let pulse else { return }
-                applyKeyboardStepZoom(zoomIn: pulse.zoomIn, viewportSize: geo.size)
-                viewModel.clearCanvasKeyboardZoomPulse()
+            .onReceive(NotificationCenter.default.publisher(for: CanvasZoomController.commandNotification)) { notification in
+                guard let command = CanvasZoomController.command(from: notification) else { return }
+                applyKeyboardStepZoom(zoomIn: command == .zoomIn, viewportSize: geo.size)
             }
             .simultaneousGesture(
                 MagnifyGesture()
@@ -448,16 +440,15 @@ struct CanvasView: View {
         guard viewportSize.width > 1, viewportSize.height > 1 else { return }
         let center = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
         let combined = scale * gestureScale
-        let factor = zoomIn ? CanvasKeyboardZoom.inFactor : CanvasKeyboardZoom.outFactor
-        let nextScale = clampScale(combined * factor)
-        let focalCanvas = screenPointToCanvas(center, offset: panOffset, scale: combined, center: center)
-        panOffset = panOffsetKeepingCanvasPointAtScreen(
-            canvasPoint: focalCanvas,
-            screenAnchor: center,
-            scale: nextScale,
-            center: center
+        let next = CanvasZoomController.zoom(
+            offset: panOffset,
+            scale: combined,
+            anchor: center,
+            center: center,
+            multiplier: CanvasZoomController.keyboardStepFactor(zoomingIn: zoomIn)
         )
-        scale = nextScale
+        panOffset = next.offset
+        scale = next.scale
         gestureScale = 1.0
         magnifyFocalCanvasPoint = nil
     }
@@ -537,7 +528,7 @@ struct CanvasView: View {
     }
 
     private func clampScale(_ s: CGFloat) -> CGFloat {
-        min(max(s, 0.2), 5.0)
+        CanvasZoomController.clampScale(s)
     }
 
     /// Pan offset so `canvasPoint` appears at `screenAnchor` after scaling about `center` (inverse of `screenPointToCanvas`).

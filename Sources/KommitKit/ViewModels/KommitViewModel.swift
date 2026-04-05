@@ -62,15 +62,6 @@ package final class KommitViewModel: ObservableObject {
     @Published private(set) var canvasRecenterToken: UInt64 = 0
 
     private var lastAppliedCanvasRecenterToken: UInt64 = 0
-
-    /// Keyboard step zoom; consumed by `CanvasView` (⌘+ / ⌘−).
-    struct CanvasKeyboardZoomPulse: Equatable {
-        let token: UInt64
-        let zoomIn: Bool
-    }
-
-    @Published private(set) var canvasKeyboardZoomPulse: CanvasKeyboardZoomPulse?
-    private var canvasKeyboardZoomSequence: UInt64 = 0
     let userDefaults = UserDefaults.standard
     private let systemStatusSettingsKey = "kommit.systemStatusSettings"
     private let systemPreferredCurrencyKey = "kommit.systemPreferredCurrencyCode"
@@ -835,20 +826,6 @@ package final class KommitViewModel: ObservableObject {
 
     package func requestCanvasRecenter() {
         canvasRecenterToken &+= 1
-    }
-
-    package func requestCanvasZoomIn() {
-        canvasKeyboardZoomSequence &+= 1
-        canvasKeyboardZoomPulse = CanvasKeyboardZoomPulse(token: canvasKeyboardZoomSequence, zoomIn: true)
-    }
-
-    package func requestCanvasZoomOut() {
-        canvasKeyboardZoomSequence &+= 1
-        canvasKeyboardZoomPulse = CanvasKeyboardZoomPulse(token: canvasKeyboardZoomSequence, zoomIn: false)
-    }
-
-    func clearCanvasKeyboardZoomPulse() {
-        canvasKeyboardZoomPulse = nil
     }
 
     var isCanvasRecenterPending: Bool {

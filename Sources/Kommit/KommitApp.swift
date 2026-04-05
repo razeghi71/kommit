@@ -89,13 +89,13 @@ struct KommitApp: App {
                 .keyboardShortcut("0", modifiers: .command)
 
                 Button("Zoom In") {
-                    viewModel.requestCanvasZoomIn()
+                    appDelegate.performCanvasZoom(.zoomIn)
                 }
                 // Standard macOS mapping: ⌘+ (base key is “=”).
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button("Zoom Out") {
-                    viewModel.requestCanvasZoomOut()
+                    appDelegate.performCanvasZoom(.zoomOut)
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
@@ -244,21 +244,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard flags.contains(.command), !flags.contains(.control) else { return event }
             guard let main = self.mainWindow, event.window === main else { return event }
-            guard self.shouldAllowCanvasZoomShortcut(in: main) else { return event }
-            self.viewModel?.requestCanvasZoomIn()
+            guard CanvasZoomController.canHandleKeyboardShortcut(in: main) else { return event }
+            CanvasZoomController.post(.zoomIn)
             return nil
         }
     }
 
-    private func shouldAllowCanvasZoomShortcut(in window: NSWindow) -> Bool {
-        switch window.firstResponder {
-        case is NSTextView:
-            return false
-        case let field as NSTextField where field.isEditable:
-            return false
-        default:
-            return true
-        }
+    func performCanvasZoom(_ command: CanvasZoomCommand) {
+        guard CanvasZoomController.canHandleKeyboardShortcut(in: mainWindow) else { return }
+        CanvasZoomController.post(command)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
