@@ -41,7 +41,6 @@ package final class KommitViewModel: ObservableObject {
     @Published var nodeSizes: [UUID: CGSize] = [:]
     @Published var currentFileURL: URL?
     @Published var fileLoadID: UUID = UUID()
-    @Published var activeGuides: [SnapGuide] = []
     @Published var canvasScale: CGFloat = 1.0
     @Published package var showHiddenItems = false
 
@@ -328,28 +327,6 @@ package final class KommitViewModel: ObservableObject {
             return CGPoint(x: node.position.x + offset.width, y: node.position.y + offset.height)
         }
         return node.position
-    }
-
-    /// Axis-aligned bounds in canvas space (uses drag preview via `effectivePosition` and measured `nodeSizes`).
-    func canvasBounds(forNode id: UUID) -> CGRect? {
-        guard nodes[id] != nil else { return nil }
-        let pos = effectivePosition(id)
-        let size = nodeSizes[id] ?? NodeDefaults.size
-        return CGRect(
-            x: pos.x - size.width / 2,
-            y: pos.y - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    func canvasBoundsUnion<S: Sequence>(nodeIDs: S) -> CGRect? where S.Element == UUID {
-        var union: CGRect?
-        for id in nodeIDs {
-            guard let rect = canvasBounds(forNode: id) else { continue }
-            union = union.map { $0.union(rect) } ?? rect
-        }
-        return union
     }
 
     func moveNode(_ id: UUID, to position: CGPoint) {

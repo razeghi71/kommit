@@ -320,30 +320,22 @@ struct NodeView: View {
             DragGesture(minimumDistance: 3)
                 .onChanged { value in
                     if isMultiSelected && viewModel.selectedNodeIDs.count > 1 {
-                        let snap = viewModel.calculateGroupSnap(for: viewModel.selectedNodeIDs, rawOffset: value.translation)
-                        viewModel.moveSelectedNodes(by: snap.snappedOffset)
-                        viewModel.activeGuides = snap.guides
+                        viewModel.moveSelectedNodes(by: value.translation)
                     } else {
-                        let snap = viewModel.calculateSnap(for: node.id, rawOffset: value.translation)
-                        dragOffset = snap.snappedOffset
-                        viewModel.nodeDragOffset[node.id] = snap.snappedOffset
-                        viewModel.activeGuides = snap.guides
+                        dragOffset = value.translation
+                        viewModel.nodeDragOffset[node.id] = value.translation
                     }
                 }
                 .onEnded { value in
                     if isMultiSelected && viewModel.selectedNodeIDs.count > 1 {
-                        let snap = viewModel.calculateGroupSnap(for: viewModel.selectedNodeIDs, rawOffset: value.translation)
-                        viewModel.activeGuides = []
-                        viewModel.commitSelectedNodesMove(by: snap.snappedOffset)
+                        viewModel.commitSelectedNodesMove(by: value.translation)
                     } else {
-                        let snap = viewModel.calculateSnap(for: node.id, rawOffset: value.translation)
                         let newPosition = CGPoint(
-                            x: node.position.x + snap.snappedOffset.width,
-                            y: node.position.y + snap.snappedOffset.height
+                            x: node.position.x + value.translation.width,
+                            y: node.position.y + value.translation.height
                         )
                         dragOffset = .zero
                         viewModel.nodeDragOffset.removeValue(forKey: node.id)
-                        viewModel.activeGuides = []
                         viewModel.moveNode(node.id, to: newPosition)
                     }
                 }
