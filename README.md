@@ -38,7 +38,7 @@ Press **⌘F** to find tasks by name. Step through matches with the arrow button
 
 ### Alignment & Snapping
 
-While dragging tasks, guide lines automatically appear to snap them to equal spacing or shared edges. Select multiple tasks, right-click, and pick **Align Left/Right/Top/Bottom** to line them up in one click.
+While you drag a task, it softly snaps to other tasks’ edges and centers. **Alignment guides**—red vertical and horizontal lines plus small snap markers at the joints—show what you’re lining up with, similar to layout rulers in design tools. To align several tasks in one step, select them, right-click, open **Align**, and pick **Align Left**, **Align Right**, **Align Top**, **Align Bottom**, **Align Horizontal Center**, or **Align Vertical Center**.
 
 ### Hide & Unhide
 
