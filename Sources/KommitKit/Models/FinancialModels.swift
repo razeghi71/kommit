@@ -449,7 +449,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
     var amount: Double
     var recurrence: Recurrence?
     var tags: [String]
-    var isActive: Bool
     var createdAt: Date
 
     package init(
@@ -459,7 +458,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
         amount: Double = 0,
         recurrence: Recurrence? = nil,
         tags: [String] = [],
-        isActive: Bool = true,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -468,7 +466,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
         self.amount = amount
         self.recurrence = recurrence
         self.tags = tags
-        self.isActive = isActive
         self.createdAt = createdAt
     }
 
@@ -479,7 +476,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
         case amount
         case recurrence
         case tags
-        case isActive
         case createdAt
     }
 
@@ -490,7 +486,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
         type = try container.decodeIfPresent(FinancialFlowType.self, forKey: .type) ?? .expense
         amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0
         recurrence = try container.decodeIfPresent(Recurrence.self, forKey: .recurrence)
-        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
 
         tags = Self.normalizedTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
@@ -504,7 +499,6 @@ package struct Commitment: Identifiable, Codable, Equatable {
         try container.encode(amount, forKey: .amount)
         try container.encodeIfPresent(recurrence, forKey: .recurrence)
         try container.encode(Self.normalizedTags(from: tags), forKey: .tags)
-        try container.encode(isActive, forKey: .isActive)
         try container.encode(createdAt, forKey: .createdAt)
     }
 
@@ -544,7 +538,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
     var amount: Double
     var recurrence: Recurrence?
     var tags: [String]
-    var isActive: Bool
     var createdAt: Date
 
     package init(
@@ -554,7 +547,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
         amount: Double = 0,
         recurrence: Recurrence? = nil,
         tags: [String] = [],
-        isActive: Bool = true,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -563,7 +555,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
         self.amount = amount
         self.recurrence = recurrence
         self.tags = tags
-        self.isActive = isActive
         self.createdAt = createdAt
     }
 
@@ -574,7 +565,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
         case amount
         case recurrence
         case tags
-        case isActive
         case createdAt
     }
 
@@ -585,7 +575,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
         type = try container.decodeIfPresent(FinancialFlowType.self, forKey: .type) ?? .expense
         amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 0
         recurrence = try container.decodeIfPresent(Recurrence.self, forKey: .recurrence)
-        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
 
         tags = FinancialModels.normalizedFinancialTags(from: try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
@@ -599,7 +588,6 @@ package struct Forecast: Identifiable, Codable, Equatable {
         try container.encode(amount, forKey: .amount)
         try container.encodeIfPresent(recurrence, forKey: .recurrence)
         try container.encode(FinancialModels.normalizedFinancialTags(from: tags), forKey: .tags)
-        try container.encode(isActive, forKey: .isActive)
         try container.encode(createdAt, forKey: .createdAt)
     }
 

@@ -3,7 +3,6 @@ import Foundation
 /// Shared surface for commitment/forecast occurrence iteration (`recurrence` + anchor date).
 private protocol FinancialOccurrenceSource {
     var recurrence: Recurrence? { get }
-    var isActive: Bool { get }
     var createdAt: Date { get }
 }
 
@@ -87,12 +86,12 @@ extension KommitViewModel {
             }
     }
 
-    package func activeCommitments(ofType type: FinancialFlowType) -> [Commitment] {
-        commitments.values.filter { $0.type == type && $0.isActive }
+    package func commitments(ofType type: FinancialFlowType) -> [Commitment] {
+        commitments.values.filter { $0.type == type }
             .sorted { $0.name < $1.name }
     }
 
-    /// Expected (item, occurrence date) pairs for active planning rows in a calendar month.
+    /// Expected (item, occurrence date) pairs for planning rows in a calendar month.
     private func expectedOccurrences<Item: FinancialOccurrenceSource>(
         forItems items: some Sequence<Item>,
         month: Int,
@@ -100,7 +99,7 @@ extension KommitViewModel {
         calendar: Calendar
     ) -> [(item: Item, date: Date)] {
         var results: [(item: Item, date: Date)] = []
-        for item in items where item.isActive {
+        for item in items {
             if var rec = item.recurrence {
                 rec.startDate = item.createdAt
                 let dates = rec.occurrences(in: month, year: year, calendar: calendar)

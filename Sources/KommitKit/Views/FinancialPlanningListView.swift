@@ -184,18 +184,8 @@ struct CommitmentRow: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(commitment.name.isEmpty ? "Untitled" : commitment.name)
-                        .font(.system(size: 14, weight: .medium))
-                    if !commitment.isActive {
-                        Text("Paused")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                    }
-                }
+                Text(commitment.name.isEmpty ? "Untitled" : commitment.name)
+                    .font(.system(size: 14, weight: .medium))
 
                 Text(commitment.recurrenceDescription)
                     .font(.system(size: 11))
@@ -237,18 +227,8 @@ struct ForecastRow: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(forecast.name.isEmpty ? "Untitled" : forecast.name)
-                        .font(.system(size: 14, weight: .medium))
-                    if !forecast.isActive {
-                        Text("Paused")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                    }
-                }
+                Text(forecast.name.isEmpty ? "Untitled" : forecast.name)
+                    .font(.system(size: 14, weight: .medium))
 
                 Text(forecast.recurrenceDescription)
                     .font(.system(size: 11))

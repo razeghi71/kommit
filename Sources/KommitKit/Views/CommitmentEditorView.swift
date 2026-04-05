@@ -17,7 +17,6 @@ struct CommitmentDraftBaseline: Equatable {
     var type: FinancialFlowType
     var amount: Double
     var tags: [String]
-    var isActive: Bool
     var eventDate: Date
     var recurrence: Recurrence?
 }
@@ -46,7 +45,6 @@ struct CommitmentEditorView: View {
     @State private var amount: String = ""
     @State private var tags: [String] = []
     @State private var tagInput: String = ""
-    @State private var isActive: Bool = true
     @State private var eventDate: Date = Date()
 
     @State private var selectedPreset: RecurrencePreset = .doesNotRepeat
@@ -129,7 +127,6 @@ struct CommitmentEditorView: View {
             type: type,
             amount: FinancialCurrencyFormatting.parseDecimalInput(amount) ?? 0,
             tags: tags,
-            isActive: isActive,
             eventDate: eventDate,
             recurrence: normalizedRecurrenceForDraft()
         )
@@ -183,13 +180,6 @@ struct CommitmentEditorView: View {
                     }
                     .frame(width: 130)
                 }
-
-                Toggle(isOn: $isActive) {
-                    Text("Active")
-                        .font(.system(size: 12))
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
             }
 
             FieldGroup("Schedule") {
@@ -354,7 +344,6 @@ struct CommitmentEditorView: View {
             type = existing.type
             amount = FinancialCurrencyFormatting.editorAmountString(existing.amount)
             tags = existing.tags
-            isActive = existing.isActive
             eventDate = existing.createdAt
 
             if allowsRecurrence {
@@ -372,7 +361,6 @@ struct CommitmentEditorView: View {
             type = seed.type
             amount = FinancialCurrencyFormatting.editorAmountString(seed.amount)
             tags = seed.tags
-            isActive = true
             eventDate = seed.eventDate
             selectedPreset = .doesNotRepeat
             customRecurrence = nil
@@ -392,7 +380,6 @@ struct CommitmentEditorView: View {
             amount: amountValue,
             recurrence: recurrence,
             tags: tags,
-            isActive: isActive,
             createdAt: eventDate
         )
 
