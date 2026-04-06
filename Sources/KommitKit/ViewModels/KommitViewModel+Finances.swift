@@ -270,6 +270,12 @@ extension KommitViewModel {
         return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    /// Shared tag source for all financial entities (transactions, commitments, forecasts).
+    package func allFinanceTags() -> [String] {
+        let tags = allFinancialTags() + allTransactionTags()
+        return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     /// Occurrence dates from the recurrence anchor through the month of `untilDate` (inclusive), respecting `until` in `occurrences(in:year:)`.
     private static func commitmentOccurrenceDatesThroughUntil(
         recurrence: Recurrence,

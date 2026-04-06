@@ -650,7 +650,7 @@ struct TransactionEditorView: View {
     }
 
     private var tagSuggestions: [String] {
-        let existingTags = viewModel.allFinancialTags() + viewModel.allTransactionTags()
+        let existingTags = viewModel.allFinanceTags()
         let selected = Set(tags.map { normalizedTagKey($0) })
         let query = tagInput.trimmingCharacters(in: .whitespacesAndNewlines)
         // Sort after Set so order is stable on every body pass (Set order is undefined).
