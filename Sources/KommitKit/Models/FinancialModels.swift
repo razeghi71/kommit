@@ -14,6 +14,33 @@ package enum FinancialFlowType: String, Codable, CaseIterable {
     }
 }
 
+// MARK: - Finance accounts (calendar starting balance)
+
+/// A balance bucket (e.g. checking, savings, credit card). The finance calendar’s starting point is the sum of all `balance` values.
+package struct FinanceAccount: Codable, Equatable, Identifiable, Hashable {
+    package var id: UUID
+    package var name: String
+    package var balance: Double
+    /// Marks the account as credit-style in the UI (e.g. credit card); balances may be negative with or without this flag.
+    package var isCreditAccount: Bool
+    /// Maximum borrowing for credit accounts; ignored when `isCreditAccount` is false.
+    package var creditLimit: Double?
+
+    package init(
+        id: UUID = UUID(),
+        name: String,
+        balance: Double,
+        isCreditAccount: Bool,
+        creditLimit: Double? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.balance = balance
+        self.isCreditAccount = isCreditAccount
+        self.creditLimit = creditLimit
+    }
+}
+
 // MARK: - Weekday
 
 package enum Weekday: String, Codable, CaseIterable, Comparable {

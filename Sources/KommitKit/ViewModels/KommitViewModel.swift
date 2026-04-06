@@ -53,8 +53,14 @@ package final class KommitViewModel: ObservableObject {
     @Published var commitments: [UUID: Commitment] = [:]
     @Published var forecasts: [UUID: Forecast] = [:]
     @Published var financialTransactions: [UUID: FinancialTransaction] = [:]
-    /// Persisted with the document; drives finance calendar day balances from today onward.
-    @Published package var financeCalendarStartingBalance: Double = 0
+    /// Persisted with the document; calendar starting balance is the sum of `balance` for each account.
+    @Published package var financeAccounts: [FinanceAccount] = []
+
+    /// Combined balance passed into `FinanceCalendarProjection` as today’s starting point.
+    package var financeCalendarTotalBalance: Double {
+        financeAccounts.reduce(0) { $0 + $1.balance }
+    }
+
     /// Incremented to request resetting canvas pan/zoom to the default framing; handled in `CanvasView`.
     @Published private(set) var canvasRecenterToken: UInt64 = 0
     /// Transient layout measurements from `NodeView`; used for rendering/hit-testing without mutating document data.

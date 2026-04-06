@@ -58,8 +58,22 @@ extension KommitViewModel {
         isDirty = true
     }
 
-    package func setFinanceCalendarStartingBalance(_ value: Double) {
-        financeCalendarStartingBalance = value
+    package func upsertFinanceAccount(_ account: FinanceAccount) {
+        if let i = financeAccounts.firstIndex(where: { $0.id == account.id }) {
+            financeAccounts[i] = account
+        } else {
+            financeAccounts.append(account)
+        }
+        isDirty = true
+    }
+
+    package func removeFinanceAccount(id: UUID) {
+        financeAccounts.removeAll { $0.id == id }
+        isDirty = true
+    }
+
+    package func removeFinanceAccounts(at offsets: IndexSet) {
+        financeAccounts.remove(atOffsets: offsets)
         isDirty = true
     }
 

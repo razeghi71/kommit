@@ -158,8 +158,8 @@ struct KommitDocument: Codable {
     var commitments: [Commitment]?
     var forecasts: [Forecast]?
     var financialTransactions: [FinancialTransaction]?
-    /// Document data for the finance calendar (not a board “setting”); omitted when zero.
-    var financeCalendarStartingBalance: Double?
+    /// Accounts whose balances sum to the finance calendar starting point; omitted when empty.
+    var financeAccounts: [FinanceAccount]?
 
     private enum CodingKeys: String, CodingKey {
         case format
@@ -168,14 +168,14 @@ struct KommitDocument: Codable {
         case commitments
         case forecasts
         case financialTransactions
-        case financeCalendarStartingBalance
+        case financeAccounts
     }
 
     init(
         format: Int = 5,
         nodes: [KommitNode],
         settings: KommitBoardSettings?,
-        financeCalendarStartingBalance: Double? = nil,
+        financeAccounts: [FinanceAccount]? = nil,
         commitments: [Commitment]? = nil,
         forecasts: [Forecast]? = nil,
         financialTransactions: [FinancialTransaction]? = nil
@@ -183,7 +183,7 @@ struct KommitDocument: Codable {
         self.format = format
         self.nodes = nodes
         self.settings = settings
-        self.financeCalendarStartingBalance = financeCalendarStartingBalance
+        self.financeAccounts = financeAccounts
         self.commitments = commitments
         self.forecasts = forecasts
         self.financialTransactions = financialTransactions
@@ -197,7 +197,7 @@ struct KommitDocument: Codable {
         forecasts = try container.decodeIfPresent([Forecast].self, forKey: .forecasts)
         financialTransactions = try container.decodeIfPresent([FinancialTransaction].self, forKey: .financialTransactions)
         settings = try container.decodeIfPresent(KommitBoardSettings.self, forKey: .settings)
-        financeCalendarStartingBalance = try container.decodeIfPresent(Double.self, forKey: .financeCalendarStartingBalance)
+        financeAccounts = try container.decodeIfPresent([FinanceAccount].self, forKey: .financeAccounts)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -210,8 +210,8 @@ struct KommitDocument: Codable {
         if let settings, settings.hasAnyValue {
             try container.encode(settings, forKey: .settings)
         }
-        if let balance = financeCalendarStartingBalance, balance != 0 {
-            try container.encode(balance, forKey: .financeCalendarStartingBalance)
+        if let accounts = financeAccounts, !accounts.isEmpty {
+            try container.encode(accounts, forKey: .financeAccounts)
         }
     }
 }

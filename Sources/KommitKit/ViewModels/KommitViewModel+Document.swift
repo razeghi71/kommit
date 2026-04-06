@@ -10,7 +10,7 @@ extension KommitViewModel {
         commitments.removeAll()
         forecasts.removeAll()
         financialTransactions.removeAll()
-        financeCalendarStartingBalance = 0
+        financeAccounts = []
         fileStatusSettings = nil
         filePreferredCurrencyCode = nil
         editingNodeID = nil
@@ -52,7 +52,7 @@ extension KommitViewModel {
         let commitments: [Commitment]?
         let forecasts: [Forecast]?
         let financialTransactions: [FinancialTransaction]?
-        let financeCalendarStartingBalance: Double?
+        let financeAccounts: [FinanceAccount]?
         let preferredCurrencyCode: String?
     }
 
@@ -72,7 +72,7 @@ extension KommitViewModel {
             commitments: document.commitments,
             forecasts: document.forecasts,
             financialTransactions: document.financialTransactions,
-            financeCalendarStartingBalance: document.financeCalendarStartingBalance,
+            financeAccounts: document.financeAccounts,
             preferredCurrencyCode: document.settings?.preferredCurrencyCode
         )
     }
@@ -115,7 +115,7 @@ extension KommitViewModel {
         commitments.removeAll()
         forecasts.removeAll()
         financialTransactions.removeAll()
-        financeCalendarStartingBalance = 0
+        financeAccounts = []
         fileStatusSettings = nil
         filePreferredCurrencyCode = nil
         editingNodeID = nil
@@ -174,7 +174,7 @@ extension KommitViewModel {
         let document = KommitDocument(
             nodes: sortedNodes,
             settings: boardSettings.hasAnyValue ? boardSettings : nil,
-            financeCalendarStartingBalance: financeCalendarStartingBalance == 0 ? nil : financeCalendarStartingBalance,
+            financeAccounts: financeAccounts.isEmpty ? nil : financeAccounts,
             commitments: commitmentList,
             forecasts: forecastList,
             financialTransactions: transactions
@@ -204,7 +204,7 @@ extension KommitViewModel {
         commitments = Dictionary(uniqueKeysWithValues: (loaded.commitments ?? []).map { ($0.id, $0) })
         forecasts = Dictionary(uniqueKeysWithValues: (loaded.forecasts ?? []).map { ($0.id, $0) })
         financialTransactions = Dictionary(uniqueKeysWithValues: (loaded.financialTransactions ?? []).map { ($0.id, $0) })
-        financeCalendarStartingBalance = loaded.financeCalendarStartingBalance ?? 0
+        financeAccounts = loaded.financeAccounts ?? []
         fileStatusSettings = loaded.fileStatusSettings
         if let rawCurrency = loaded.preferredCurrencyCode {
             filePreferredCurrencyCode = FinancialCurrencyFormatting.normalizedISOCurrencyCode(rawCurrency)

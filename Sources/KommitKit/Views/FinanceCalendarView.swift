@@ -6,6 +6,7 @@ package struct FinanceCalendarView: View {
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
     @State private var forecastQuickLogPayload: FinanceCalendarForecastQuickLogPayload?
     @State private var editingCalendarTransaction: FinancialTransaction?
+    @State private var financeAccountsPresentation: FinanceAccountsSheetLaunch?
     @State private var didInitialScrollToToday = false
     @State private var pendingScrollTarget: Date?
 
@@ -62,6 +63,9 @@ package struct FinanceCalendarView: View {
                 defaultMonth: Calendar.current.component(.month, from: txn.date),
                 defaultYear: Calendar.current.component(.year, from: txn.date)
             )
+        }
+        .sheet(item: $financeAccountsPresentation) { launch in
+            FinanceAccountsSheet(viewModel: viewModel, launch: launch)
         }
     }
 
@@ -130,7 +134,7 @@ package struct FinanceCalendarView: View {
             paidRecordedOn: { id, due in
                 paidRecordedDateByKey[Self.commitmentOccurrenceKey(commitmentID: id, dueDate: due, calendar: cal)]
             },
-            startingBalanceAtTodayStart: viewModel.financeCalendarStartingBalance
+            startingBalanceAtTodayStart: viewModel.financeCalendarTotalBalance
         )
     }
 
@@ -155,10 +159,43 @@ package struct FinanceCalendarView: View {
 
     private func header(onScrollToToday: @escaping () -> Void) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            FinanceCalendarStartingBalanceBar(
-                balance: viewModel.financeCalendarStartingBalance,
-                onApply: { viewModel.setFinanceCalendarStartingBalance($0) }
-            )
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Current balance")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                    Button {
+                        financeAccountsPresentation = .manage
+                    } label: {
+                        Text(viewModel.formatFinancialCurrency(viewModel.financeCalendarTotalBalance))
+                            .font(.system(size: 15, design: .monospaced))
+                            .foregroundStyle(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("View and edit accounts")
+                }
+                if viewModel.financeAccounts.isEmpty {
+                    Button {
+                        financeAccountsPresentation = .addAccount
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 22))
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add account")
+                } else {
+                    Button {
+                        financeAccountsPresentation = .manage
+                    } label: {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 22))
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Edit accounts")
+                }
+            }
             Spacer()
             Button("Today", action: onScrollToToday)
                 .buttonStyle(.bordered)
@@ -826,42 +863,3 @@ private struct FinanceCalendarCustomRecordSheet: View {
     }
 }
 
-/// Draft text lives here so each keystroke does not rebuild the full calendar (`dayColumns` is expensive).
-private struct FinanceCalendarStartingBalanceBar: View {
-    private static let displayFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 10
-        f.minimumFractionDigits = 0
-        f.usesGroupingSeparator = false
-        return f
-    }()
-
-    let balance: Double
-    var onApply: (Double) -> Void
-    @State private var draftText: String = "0"
-
-    var body: some View {
-        HStack(spacing: 11) {
-            Text("Starting balance")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-            TextField("0", text: $draftText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 15, design: .monospaced))
-                .frame(width: 148, alignment: .leading)
-                .multilineTextAlignment(.leading)
-            Button("Apply") {
-                onApply(FinancialCurrencyFormatting.parseDecimalInput(draftText) ?? 0)
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .environment(\.layoutDirection, .leftToRight)
-        .onAppear { syncDraftFromBalance() }
-        .onChange(of: balance) { _, _ in syncDraftFromBalance() }
-    }
-
-    private func syncDraftFromBalance() {
-        draftText = Self.displayFormatter.string(from: NSNumber(value: balance)) ?? "0"
-    }
-}
