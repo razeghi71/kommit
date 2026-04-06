@@ -81,15 +81,17 @@ package struct FinancesView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch selectedTab {
-        case .financialPlanning:
-            FinancialPlanningListView(viewModel: viewModel)
-        case .transactions:
-            TransactionsListView(viewModel: viewModel)
-        case .calendar:
-            FinanceCalendarView(viewModel: viewModel)
-        case .summary:
-            FinanceSummaryView(viewModel: viewModel)
+        ZStack {
+            tabContent(FinancialPlanningListView(viewModel: viewModel), for: .financialPlanning)
+            tabContent(TransactionsListView(viewModel: viewModel), for: .transactions)
+            tabContent(FinanceCalendarView(viewModel: viewModel), for: .calendar)
+            tabContent(FinanceSummaryView(viewModel: viewModel), for: .summary)
         }
+    }
+
+    private func tabContent<Content: View>(_ view: Content, for tab: FinancesTab) -> some View {
+        view
+            .opacity(selectedTab == tab ? 1 : 0)
+            .allowsHitTesting(selectedTab == tab)
     }
 }
