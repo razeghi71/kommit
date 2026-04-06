@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Finances Sub-tabs
 
-private enum FinancesTab: String, CaseIterable, Identifiable {
+private enum FinancesTab: String, CaseIterable, Hashable, Identifiable {
     case financialPlanning
     case transactions
     case calendar
@@ -34,6 +34,8 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 package struct FinancesView: View {
     @ObservedObject var viewModel: KommitViewModel
     @State private var selectedTab: FinancesTab = .financialPlanning
+    /// Sub-tabs whose root view has been inserted at least once; kept mounted for state retention.
+    @State private var materializedTabs: Set<FinancesTab> = [.financialPlanning]
     @State private var transactionsFilterMonth: Int
     @State private var transactionsFilterYear: Int
     @State private var summaryFilterMonth: Int
@@ -66,6 +68,7 @@ package struct FinancesView: View {
         VStack(spacing: 0) {
             ForEach(FinancesTab.allCases) { tab in
                 Button {
+                    materializedTabs.insert(tab)
                     selectedTab = tab
                 } label: {
                     HStack(spacing: 8) {
@@ -97,28 +100,39 @@ package struct FinancesView: View {
     @ViewBuilder
     private var content: some View {
         ZStack {
-            tabContent(FinancialPlanningListView(viewModel: viewModel), for: .financialPlanning)
-            tabContent(
-                TransactionsListView(
-                    viewModel: viewModel,
-                    filterMonth: $transactionsFilterMonth,
-                    filterYear: $transactionsFilterYear
-                ),
-                for: .transactions
-            )
-            tabContent(FinanceCalendarView(viewModel: viewModel), for: .calendar)
-            tabContent(
-                FinanceSummaryView(
-                    viewModel: viewModel,
-                    filterMonth: $summaryFilterMonth,
-                    filterYear: $summaryFilterYear
-                ),
-                for: .summary
-            )
+            if materializedTabs.contains(.financialPlanning) {
+                tabLayer(FinancialPlanningListView(viewModel: viewModel), for: .financialPlanning)
+            }
+            if materializedTabs.contains(.transactions) {
+                tabLayer(
+                    TransactionsListView(
+                        viewModel: viewModel,
+                        filterMonth: $transactionsFilterMonth,
+                        filterYear: $transactionsFilterYear
+                    ),
+                    for: .transactions
+                )
+            }
+            if materializedTabs.contains(.calendar) {
+                tabLayer(FinanceCalendarView(viewModel: viewModel), for: .calendar)
+            }
+            if materializedTabs.contains(.summary) {
+                tabLayer(
+                    FinanceSummaryView(
+                        viewModel: viewModel,
+                        filterMonth: $summaryFilterMonth,
+                        filterYear: $summaryFilterYear
+                    ),
+                    for: .summary
+                )
+            }
+        }
+        .onChange(of: selectedTab) { _, tab in
+            materializedTabs.insert(tab)
         }
     }
 
-    private func tabContent<Content: View>(_ view: Content, for tab: FinancesTab) -> some View {
+    private func tabLayer<Content: View>(_ view: Content, for tab: FinancesTab) -> some View {
         view
             .opacity(selectedTab == tab ? 1 : 0)
             .allowsHitTesting(selectedTab == tab)
