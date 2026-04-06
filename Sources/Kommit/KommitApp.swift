@@ -30,6 +30,8 @@ struct KommitApp: App {
                 .onAppear {
                     appDelegate.viewModel = viewModel
                     appDelegate.openHubWindowAction = { [openWindow] in openWindow(id: "hub") }
+                    // StartHub is shown before the main window; ContentView.onAppear has not run yet, so wire settings here too.
+                    viewModel.openSettingsWindowAction = { [openWindow] in openWindow(id: "settings") }
                 }
                 .onChange(of: viewModel.shouldShowStartHub) { _, showHub in
                     guard !showHub else { return }

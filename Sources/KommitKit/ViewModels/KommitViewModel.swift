@@ -111,7 +111,7 @@ package final class KommitViewModel: ObservableObject {
     }
 
     /// Set from the app (`KommitApp` windows). Used where `EnvironmentValues.openWindow` is unavailable.
-    var openSettingsWindowAction: (() -> Void)?
+    package var openSettingsWindowAction: (() -> Void)?
 
     func openSettingsWindow() {
         openSettingsWindowAction?()
