@@ -621,6 +621,10 @@ struct TransactionEditorView: View {
                 deferredDueDate = prefilledPaymentDate
                 settlementDueDate = prefilledPaymentDate
             }
+        } else if let prefilledPaymentDate {
+            date = prefilledPaymentDate
+            deferredDueDate = prefilledPaymentDate
+            settlementDueDate = prefilledPaymentDate
         }
 
         captureDraftBaseline()

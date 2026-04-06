@@ -9,6 +9,7 @@ package struct FinanceCalendarView: View {
     @State private var financeAccountsPresentation: FinanceAccountsSheetLaunch?
     @State private var didInitialScrollToToday = false
     @State private var pendingScrollTarget: Date?
+    @State private var standaloneQuickAddPayload: FinanceCalendarStandaloneQuickAddPayload?
 
     private let horizonDays = 150
     private let columnWidth: CGFloat = 228
@@ -54,6 +55,16 @@ package struct FinanceCalendarView: View {
                 defaultYear: comps.year ?? 2026,
                 prefilledForecastID: payload.forecast.id,
                 prefilledPaymentDate: payload.occurrenceDate
+            )
+        }
+        .sheet(item: $standaloneQuickAddPayload) { payload in
+            let comps = Calendar.current.dateComponents([.year, .month], from: payload.date)
+            TransactionEditorView(
+                viewModel: viewModel,
+                transaction: nil,
+                defaultMonth: comps.month ?? 1,
+                defaultYear: comps.year ?? 2026,
+                prefilledPaymentDate: payload.date
             )
         }
         .sheet(item: $editingCalendarTransaction) { txn in
@@ -265,11 +276,16 @@ package struct FinanceCalendarView: View {
         middleHeight: CGFloat,
         columnHeight: CGFloat
     ) -> some View {
-        let cal = calendar
         let isPastDay = column.displayDayStart < todayStart
         let scrollHeight = middleHeight
         return VStack(alignment: .leading, spacing: 0) {
-            dayHeader(date: column.displayDayStart, isToday: isToday, calendar: cal)
+            dayHeader(
+                date: column.displayDayStart,
+                isToday: isToday,
+                onStandaloneQuickAdd: {
+                    standaloneQuickAddPayload = FinanceCalendarStandaloneQuickAddPayload(date: column.displayDayStart)
+                }
+            )
 
             Divider()
                 .padding(.horizontal, 8)
@@ -349,24 +365,49 @@ package struct FinanceCalendarView: View {
         .padding(.trailing, 10)
     }
 
-    private func dayHeader(date: Date, isToday: Bool, calendar cal: Calendar) -> some View {
+    private func dayHeader(
+        date: Date,
+        isToday: Bool,
+        onStandaloneQuickAdd: @escaping () -> Void
+    ) -> some View {
         let weekday = Self.weekdayFormatter.string(from: date)
         let dayLabel = Self.dayFormatter.string(from: date)
-        return VStack(spacing: 5) {
-            Text(weekday)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(dayLabel)
-                .font(.system(size: 17, weight: isToday ? .bold : .semibold))
-                .monospacedDigit()
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background {
-                    if isToday {
-                        Capsule(style: .continuous)
-                            .fill(Color.accentColor.opacity(0.2))
+        return HStack(alignment: .top, spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 5) {
+                Text(weekday)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(dayLabel)
+                    .font(.system(size: 17, weight: isToday ? .bold : .semibold))
+                    .monospacedDigit()
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background {
+                        if isToday {
+                            Capsule(style: .continuous)
+                                .fill(Color.accentColor.opacity(0.2))
+                        }
                     }
-                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Button(action: onStandaloneQuickAdd) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Self.standaloneRecordedAccent.opacity(0.95), .white)
+                    .symbolRenderingMode(.palette)
+            }
+            .buttonStyle(.plain)
+            .help("Add standalone transaction on this day")
+            .padding(.top, 2)
+            .padding(.trailing, 6)
+        }
+        .overlay(alignment: .topLeading) {
+            Color.clear.frame(width: 24, height: 1)
+                .padding(.top, 2)
+                .padding(.leading, 6)
+                .hidden()
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 11)
@@ -812,6 +853,11 @@ private struct FinanceCalendarForecastQuickLogPayload: Identifiable {
     var id: String { "\(forecast.id.uuidString)|\(occurrenceDate.timeIntervalSinceReferenceDate)" }
     let forecast: Forecast
     let occurrenceDate: Date
+}
+
+private struct FinanceCalendarStandaloneQuickAddPayload: Identifiable {
+    var id: String { "\(date.timeIntervalSinceReferenceDate)" }
+    let date: Date
 }
 
 private struct FinanceCalendarCustomRecordSheet: View {
