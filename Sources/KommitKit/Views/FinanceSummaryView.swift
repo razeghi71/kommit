@@ -3,6 +3,9 @@ import SwiftUI
 // MARK: - Finance Summary View
 
 struct FinanceSummaryView: View {
+    /// Minimum width to show "Spending by Tag" and "Forecast vs Actual" side by side.
+    private static let sideBySideBreakpoint: CGFloat = 960
+
     @ObservedObject var viewModel: KommitViewModel
     @Binding var filterMonth: Int
     @Binding var filterYear: Int
@@ -20,13 +23,27 @@ struct FinanceSummaryView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(spacing: 24) {
-                    incomeExpenseCard
-                    tagBreakdownCard
-                    forecastComparisonCard
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(spacing: 24) {
+                        incomeExpenseCard
+
+                        if geo.size.width >= Self.sideBySideBreakpoint {
+                            HStack(alignment: .top, spacing: 16) {
+                                tagBreakdownCard
+                                    .frame(maxWidth: .infinity, alignment: .top)
+                                forecastComparisonCard
+                                    .frame(maxWidth: .infinity, alignment: .top)
+                            }
+                        } else {
+                            VStack(spacing: 24) {
+                                tagBreakdownCard
+                                forecastComparisonCard
+                            }
+                        }
+                    }
+                    .padding(20)
                 }
-                .padding(20)
             }
         }
         .sheet(item: $drilldown) { payload in
@@ -226,8 +243,15 @@ struct FinanceSummaryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(tag)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 1, height: 16)
+                        .padding(.horizontal, 8)
+
                     Spacer()
                     Text(viewModel.formatFinancialCurrencyUnsigned(amount))
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
@@ -239,13 +263,25 @@ struct FinanceSummaryView: View {
 
                 GeometryReader { geo in
                     let fraction = maxAmount > 0 ? amount / maxAmount : 0
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(color)
-                        .frame(width: max(4, geo.size.width * fraction))
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(color)
+                            .frame(width: max(4, geo.size.width * fraction))
+                    }
                 }
                 .frame(height: 8)
             }
-            .padding(.vertical, 4)
+            .padding(10)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.025))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -537,9 +573,17 @@ private struct SummaryTransactionsDrilldownView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 60, alignment: .leading)
 
-            Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
-                .font(.system(size: 14, weight: .medium))
-                .lineLimit(1)
+            HStack(spacing: 8) {
+                Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
+                    .font(.system(size: 14, weight: .medium))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                if !transaction.tags.isEmpty {
+                    FinancialMetadataStrip(items: transaction.tags, width: 140)
+                        .layoutPriority(0)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
 
