@@ -84,7 +84,8 @@ package final class KommitViewModel: ObservableObject {
     var undoStack: [[UUID: KommitNode]] = []
     var redoStack: [[UUID: KommitNode]] = []
     private let maxUndoLevels = 50
-    package var isDirty = false
+    /// Published so SwiftUI can refresh the main window title (`*` prefix) when it changes without other `@Published` updates.
+    @Published package var isDirty = false
 
     package var canUndo: Bool { !undoStack.isEmpty }
     package var canRedo: Bool { !redoStack.isEmpty }

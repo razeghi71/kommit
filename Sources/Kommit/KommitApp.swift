@@ -32,7 +32,7 @@ struct KommitApp: App {
         }
         .defaultSize(width: 780, height: 560)
 
-        Window("Kommit", id: "main") {
+        Window(viewModel.documentWindowTitle, id: "main") {
             ContentView(viewModel: viewModel)
                 .frame(minWidth: 800, idealWidth: 1200, minHeight: 600, idealHeight: 800)
                 .background(MainWindowAccessor { window in
@@ -43,12 +43,6 @@ struct KommitApp: App {
                     appDelegate.viewModel = viewModel
                     appDelegate.openMainWindowAction = { [openWindow] in openWindow(id: "main") }
                     appDelegate.openHubWindowAction = { [openWindow] in openWindow(id: "hub") }
-                    appDelegate.syncMainWindowDocumentTitle(with: viewModel)
-                }
-                .onReceive(viewModel.objectWillChange) { _ in
-                    DispatchQueue.main.async {
-                        appDelegate.syncMainWindowDocumentTitle(with: viewModel)
-                    }
                 }
         }
         .defaultSize(width: 1200, height: 800)
@@ -187,18 +181,28 @@ struct KommitApp: App {
 private struct HubWindowAccessor: NSViewRepresentable {
     let onAttach: (NSWindow) -> Void
 
+    final class Coordinator {
+        weak var attachedWindow: NSWindow?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { attachIfNeeded(view) }
+        DispatchQueue.main.async { attachIfNeeded(view, coordinator: context.coordinator) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { attachIfNeeded(nsView) }
+        DispatchQueue.main.async { attachIfNeeded(nsView, coordinator: context.coordinator) }
     }
 
-    private func attachIfNeeded(_ view: NSView) {
+    private func attachIfNeeded(_ view: NSView, coordinator: Coordinator) {
         guard let window = view.window else { return }
+        if coordinator.attachedWindow === window { return }
+        coordinator.attachedWindow = window
         onAttach(window)
     }
 }
@@ -207,18 +211,28 @@ private struct HubWindowAccessor: NSViewRepresentable {
 private struct MainWindowAccessor: NSViewRepresentable {
     let onAttach: (NSWindow) -> Void
 
+    final class Coordinator {
+        weak var attachedWindow: NSWindow?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { attachIfNeeded(view) }
+        DispatchQueue.main.async { attachIfNeeded(view, coordinator: context.coordinator) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { attachIfNeeded(nsView) }
+        DispatchQueue.main.async { attachIfNeeded(nsView, coordinator: context.coordinator) }
     }
 
-    private func attachIfNeeded(_ view: NSView) {
+    private func attachIfNeeded(_ view: NSView, coordinator: Coordinator) {
         guard let window = view.window else { return }
+        if coordinator.attachedWindow === window { return }
+        coordinator.attachedWindow = window
         onAttach(window)
     }
 }
@@ -246,13 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         window.toolbarStyle = .unifiedCompact
         window.isMovableByWindowBackground = false
         window.backgroundColor = AppColors.canvasBackground
-        if window === mainWindow, let viewModel {
-            window.title = viewModel.documentWindowTitle
-        }
-    }
-
-    func syncMainWindowDocumentTitle(with viewModel: KommitViewModel) {
-        mainWindow?.title = viewModel.documentWindowTitle
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
