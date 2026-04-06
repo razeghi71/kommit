@@ -6,6 +6,7 @@ struct FinanceSummaryView: View {
     @ObservedObject var viewModel: KommitViewModel
     @Binding var filterMonth: Int
     @Binding var filterYear: Int
+    @State private var drilldown: TransactionDrilldown?
 
     init(viewModel: KommitViewModel, filterMonth: Binding<Int>, filterYear: Binding<Int>) {
         self.viewModel = viewModel
@@ -27,6 +28,9 @@ struct FinanceSummaryView: View {
                 }
                 .padding(20)
             }
+        }
+        .sheet(item: $drilldown) { payload in
+            SummaryTransactionsDrilldownView(viewModel: viewModel, payload: payload)
         }
     }
 
@@ -199,7 +203,8 @@ struct FinanceSummaryView: View {
                             tag: item.tag,
                             amount: item.amount,
                             maxAmount: maxAmount,
-                            color: Self.tagBarColors[index % Self.tagBarColors.count]
+                            color: Self.tagBarColors[index % Self.tagBarColors.count],
+                            onTap: { openTagDrilldown(tag: item.tag) }
                         )
                     }
                 }
@@ -216,27 +221,34 @@ struct FinanceSummaryView: View {
         }
     }
 
-    private func tagRow(tag: String, amount: Double, maxAmount: Double, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(tag)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                Spacer()
-                Text(viewModel.formatFinancialCurrencyUnsigned(amount))
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Self.expenseRed)
-            }
+    private func tagRow(tag: String, amount: Double, maxAmount: Double, color: Color, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(tag)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(viewModel.formatFinancialCurrencyUnsigned(amount))
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Self.expenseRed)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
 
-            GeometryReader { geo in
-                let fraction = maxAmount > 0 ? amount / maxAmount : 0
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(color)
-                    .frame(width: max(4, geo.size.width * fraction))
+                GeometryReader { geo in
+                    let fraction = maxAmount > 0 ? amount / maxAmount : 0
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(color)
+                        .frame(width: max(4, geo.size.width * fraction))
+                }
+                .frame(height: 8)
             }
-            .frame(height: 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
     }
 
     // MARK: - 3) Forecast vs Actual
@@ -282,7 +294,7 @@ struct FinanceSummaryView: View {
             } else {
                 VStack(spacing: 14) {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                        forecastRow(item: item)
+                        forecastRow(item: item, onTap: { openForecastDrilldown(forecastID: item.forecast.id) })
                     }
                 }
             }
@@ -298,7 +310,7 @@ struct FinanceSummaryView: View {
         }
     }
 
-    private func forecastRow(item: (forecast: Forecast, expected: Double, actual: Double)) -> some View {
+    private func forecastRow(item: (forecast: Forecast, expected: Double, actual: Double), onTap: @escaping () -> Void) -> some View {
         let isIncome = item.forecast.type == .income
         let maxVal = max(item.expected, item.actual, 1)
         let expectedFraction = item.expected / maxVal
@@ -306,62 +318,70 @@ struct FinanceSummaryView: View {
         let overBudget = !isIncome && item.actual > item.expected && item.expected > 0
         let underBudget = isIncome && item.actual < item.expected && item.expected > 0
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(item.forecast.name.isEmpty ? "Untitled" : item.forecast.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
+        return Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.forecast.name.isEmpty ? "Untitled" : item.forecast.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
 
-                Spacer()
+                    Spacer()
 
-                if overBudget {
-                    Text("Over")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
+                    if overBudget {
+                        Text("Over")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Self.expenseRed))
+                    } else if underBudget {
+                        Text("Under")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.orange))
+                    }
+
+                    Text(isIncome ? "Income" : "Expense")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Capsule().fill(Self.expenseRed))
-                } else if underBudget {
-                    Text("Under")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.orange))
+                        .background(Capsule().fill(Color.primary.opacity(0.06)))
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                 }
 
-                Text(isIncome ? "Income" : "Expense")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                VStack(spacing: 5) {
+                    forecastBarRow(
+                        label: "Expected",
+                        amount: item.expected,
+                        fraction: expectedFraction,
+                        color: Self.forecastExpectedColor
+                    )
+                    forecastBarRow(
+                        label: "Actual",
+                        amount: item.actual,
+                        fraction: actualFraction,
+                        color: overBudget ? Self.expenseRed : Self.forecastActualColor
+                    )
+                }
             }
-
-            VStack(spacing: 5) {
-                forecastBarRow(
-                    label: "Expected",
-                    amount: item.expected,
-                    fraction: expectedFraction,
-                    color: Self.forecastExpectedColor
-                )
-                forecastBarRow(
-                    label: "Actual",
-                    amount: item.actual,
-                    fraction: actualFraction,
-                    color: overBudget ? Self.expenseRed : Self.forecastActualColor
-                )
+            .padding(12)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.025))
             }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
+            }
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.025))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
-        }
+        .buttonStyle(.plain)
     }
 
     private func forecastBarRow(label: String, amount: Double, fraction: Double, color: Color) -> some View {
@@ -400,6 +420,46 @@ struct FinanceSummaryView: View {
         .padding(.vertical, 20)
     }
 
+    private func openTagDrilldown(tag: String) {
+        let transactions = cashMonthTransactions
+            .filter { txn in
+                guard txn.type == .expense else { return false }
+                if tag == "Untagged" {
+                    return txn.tags.isEmpty
+                }
+                return txn.tags.contains(tag)
+            }
+        let title = tag == "Untagged" ? "Transactions · Untagged" : "Transactions · #\(tag)"
+        drilldown = TransactionDrilldown(
+            title: title,
+            transactions: sortDrilldownTransactions(transactions)
+        )
+    }
+
+    private func openForecastDrilldown(forecastID: UUID) {
+        guard let forecast = viewModel.forecasts[forecastID] else { return }
+        let transactions = recordedMonthTransactions.filter { $0.forecastID == forecastID }
+        let name = forecast.name.isEmpty ? "Untitled" : forecast.name
+        drilldown = TransactionDrilldown(
+            title: "Transactions · \(name)",
+            transactions: sortDrilldownTransactions(transactions)
+        )
+    }
+
+    private func sortDrilldownTransactions(_ transactions: [FinancialTransaction]) -> [FinancialTransaction] {
+        transactions.sorted { lhs, rhs in
+            if lhs.type != rhs.type {
+                return lhs.type == .expense
+            }
+            let lhsAmount = viewModel.resolvedTransactionAmount(lhs)
+            let rhsAmount = viewModel.resolvedTransactionAmount(rhs)
+            if lhsAmount != rhsAmount {
+                return lhsAmount > rhsAmount
+            }
+            return lhs.date > rhs.date
+        }
+    }
+
     // MARK: - Colors
 
     private static let incomeGreen = Color(red: 0.20, green: 0.56, blue: 0.46)
@@ -417,4 +477,83 @@ struct FinanceSummaryView: View {
         Color(red: 0.68, green: 0.55, blue: 0.35),
         Color(red: 0.42, green: 0.48, blue: 0.70),
     ]
+}
+
+private struct TransactionDrilldown: Identifiable {
+    let id = UUID()
+    let title: String
+    let transactions: [FinancialTransaction]
+}
+
+private struct SummaryTransactionsDrilldownView: View {
+    @ObservedObject var viewModel: KommitViewModel
+    let payload: TransactionDrilldown
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(payload.title)
+                    .font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+            Divider()
+
+            if payload.transactions.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "tray")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
+                    Text("No transactions")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(payload.transactions) { transaction in
+                            row(transaction)
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 600, minHeight: 420)
+        .onExitCommand { dismiss() }
+    }
+
+    private func row(_ transaction: FinancialTransaction) -> some View {
+        HStack(spacing: 12) {
+            let resolvedAmount = viewModel.resolvedTransactionAmount(transaction)
+            Text(Self.dateFormatter.string(from: transaction.date))
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .leading)
+
+            Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+
+            Spacer()
+
+            Text(transaction.type == .income ? "+\(viewModel.formatFinancialCurrencyUnsigned(resolvedAmount))" : "-\(viewModel.formatFinancialCurrencyUnsigned(resolvedAmount))")
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .foregroundStyle(transaction.type == .income ? .green : .primary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
 }
