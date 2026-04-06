@@ -468,7 +468,8 @@ struct FinanceSummaryView: View {
         let title = tag == "Untagged" ? "Transactions · Untagged" : "Transactions · #\(tag)"
         drilldown = TransactionDrilldown(
             title: title,
-            transactions: sortDrilldownTransactions(transactions)
+            transactions: sortDrilldownTransactions(transactions),
+            showTransactionTags: false
         )
     }
 
@@ -478,7 +479,8 @@ struct FinanceSummaryView: View {
         let name = forecast.name.isEmpty ? "Untitled" : forecast.name
         drilldown = TransactionDrilldown(
             title: "Transactions · \(name)",
-            transactions: sortDrilldownTransactions(transactions)
+            transactions: sortDrilldownTransactions(transactions),
+            showTransactionTags: true
         )
     }
 
@@ -519,12 +521,17 @@ private struct TransactionDrilldown: Identifiable {
     let id = UUID()
     let title: String
     let transactions: [FinancialTransaction]
+    /// Tags are redundant when drilling down from a tag row (same tag on every line).
+    var showTransactionTags: Bool
 }
 
 private struct SummaryTransactionsDrilldownView: View {
     @ObservedObject var viewModel: KommitViewModel
     let payload: TransactionDrilldown
     @Environment(\.dismiss) private var dismiss
+
+    /// Fixed width so tag pills line up vertically across forecast drilldown rows.
+    private static let tagColumnWidth: CGFloat = 140
 
     var body: some View {
         VStack(spacing: 0) {
@@ -566,30 +573,34 @@ private struct SummaryTransactionsDrilldownView: View {
     }
 
     private func row(_ transaction: FinancialTransaction) -> some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             let resolvedAmount = viewModel.resolvedTransactionAmount(transaction)
             Text(Self.dateFormatter.string(from: transaction.date))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 60, alignment: .leading)
 
-            HStack(spacing: 8) {
-                Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                if !transaction.tags.isEmpty {
-                    FinancialMetadataStrip(items: transaction.tags, width: 140)
-                        .layoutPriority(0)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(transaction.name.isEmpty ? "Untitled" : transaction.name)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            if payload.showTransactionTags {
+                Group {
+                    if transaction.tags.isEmpty {
+                        Color.clear
+                    } else {
+                        FinancialMetadataStrip(items: transaction.tags, width: Self.tagColumnWidth)
+                    }
+                }
+                .frame(width: Self.tagColumnWidth, alignment: .leading)
+            }
 
             Text(transaction.type == .income ? "+\(viewModel.formatFinancialCurrencyUnsigned(resolvedAmount))" : "-\(viewModel.formatFinancialCurrencyUnsigned(resolvedAmount))")
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundStyle(transaction.type == .income ? .green : .primary)
+                .frame(minWidth: 100, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
