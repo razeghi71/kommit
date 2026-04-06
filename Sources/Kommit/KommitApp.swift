@@ -2,6 +2,13 @@ import AppKit
 import KommitKit
 import SwiftUI
 
+/// Stable `NSWindow.identifier` values so `AppDelegate` can recognize the hub / main windows even when
+/// weak delegate references lag behind SwiftUI recreating window hosts (see `windowShouldClose`).
+private enum KommitWindowRole {
+    static let hub = NSUserInterfaceItemIdentifier("kommit.hub")
+    static let main = NSUserInterfaceItemIdentifier("kommit.main")
+}
+
 @main
 struct KommitApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -16,6 +23,7 @@ struct KommitApp: App {
             StartHubView(viewModel: viewModel)
                 .frame(minWidth: 620, idealWidth: 780, minHeight: 440, idealHeight: 560)
                 .background(HubWindowAccessor { window in
+                    window.identifier = KommitWindowRole.hub
                     appDelegate.hubWindow = window
                     appDelegate.configureWindow(window)
                 })
@@ -36,6 +44,7 @@ struct KommitApp: App {
             ContentView(viewModel: viewModel)
                 .frame(minWidth: 800, idealWidth: 1200, minHeight: 600, idealHeight: 800)
                 .background(MainWindowAccessor { window in
+                    window.identifier = KommitWindowRole.main
                     appDelegate.mainWindow = window
                     appDelegate.configureWindow(window)
                 })
@@ -262,11 +271,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         window.backgroundColor = AppColors.canvasBackground
     }
 
+    private func isHubWindow(_ window: NSWindow) -> Bool {
+        window === hubWindow || window.identifier == KommitWindowRole.hub
+    }
+
+    private func isMainWorkspaceWindow(_ window: NSWindow) -> Bool {
+        window === mainWindow || window.identifier == KommitWindowRole.main
+    }
+
+    /// Canvas window for shortcuts, even if `mainWindow` was cleared before the accessor reattached.
+    private func resolvedMainWorkspaceWindow() -> NSWindow? {
+        if let mainWindow { return mainWindow }
+        return NSApplication.shared.windows.first { $0.identifier == KommitWindowRole.main }
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if sender === hubWindow {
+        if isHubWindow(sender) {
             return true
         }
-        guard sender === mainWindow else { return true }
+        guard isMainWorkspaceWindow(sender) else { return true }
         guard let viewModel else { return true }
         if viewModel.isDirty {
             guard KommitViewModel.showDiscardConfirmation(
@@ -280,11 +303,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
-        if window === mainWindow {
-            mainWindow = nil
+        if isMainWorkspaceWindow(window) {
+            if window === mainWindow {
+                mainWindow = nil
+            }
         }
-        if window === hubWindow {
-            hubWindow = nil
+        if isHubWindow(window) {
+            if window === hubWindow {
+                hubWindow = nil
+            }
             if suppressTerminateWhenHubCloses {
                 suppressTerminateWhenHubCloses = false
             } else {
@@ -346,7 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
             guard event.keyCode == Self.keypadPlusKeyCode else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard flags.contains(.command), !flags.contains(.control) else { return event }
-            guard let main = self.mainWindow, event.window === main else { return event }
+            guard let main = self.resolvedMainWorkspaceWindow(), event.window === main else { return event }
             guard CanvasZoomController.canHandleKeyboardShortcut(in: main) else { return event }
             CanvasZoomController.post(.zoomIn)
             return nil
@@ -354,7 +381,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
     }
 
     func performCanvasZoom(_ command: CanvasZoomCommand) {
-        guard CanvasZoomController.canHandleKeyboardShortcut(in: mainWindow) else { return }
+        guard let main = resolvedMainWorkspaceWindow(),
+            CanvasZoomController.canHandleKeyboardShortcut(in: main) else { return }
         CanvasZoomController.post(command)
     }
 
