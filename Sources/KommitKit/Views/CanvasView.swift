@@ -42,6 +42,7 @@ struct CanvasView: View {
     @State private var activeNodeDrag: ActiveNodeDrag? = nil
     @State private var nodeDragEdgeEnteredAt: Date? = nil
     @State private var lastAppliedCanvasFocusToken: UUID?
+    @State private var showEmptyCanvasGetStartedTips = true
 
     var body: some View {
         GeometryReader { geo in
@@ -144,14 +145,25 @@ struct CanvasView: View {
                         .allowsHitTesting(false)
                 }
 
-                // Empty state hint
+                // Empty canvas: full tips until dismissed, then the short hint only (pass-through to double-click).
                 if viewModel.visibleNodes.isEmpty {
-                    VStack(spacing: 8) {
-                        Text("Double-click to add a node")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.secondary.opacity(0.6))
+                    Group {
+                        if showEmptyCanvasGetStartedTips {
+                            CanvasEmptyGetStartedPlaceholder {
+                                showEmptyCanvasGetStartedTips = false
+                            }
+                        } else {
+                            Text("Double-click to add a node")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.secondary.opacity(0.6))
+                        }
                     }
-                    .allowsHitTesting(false)
+                    .allowsHitTesting(showEmptyCanvasGetStartedTips)
+                    .onChange(of: viewModel.visibleNodes.isEmpty) { wasEmpty, isEmpty in
+                        if !wasEmpty, isEmpty {
+                            showEmptyCanvasGetStartedTips = true
+                        }
+                    }
                 }
 
                 // Content layer, shifted by pan offset and scaled
@@ -391,6 +403,8 @@ struct CanvasView: View {
             .clipped()
         }
         .onChange(of: viewModel.fileLoadID) {
+            // New document session; canvas `@State` survives main-window close, so re-show tips each time.
+            showEmptyCanvasGetStartedTips = true
             cancelActiveNodeDrag()
             centerOnNodes(viewportSize: NSApplication.shared.windows.first?.frame.size ?? CGSize(width: 1200, height: 800))
         }
@@ -880,6 +894,66 @@ private struct CanvasSelectAllKeyMonitor: NSViewRepresentable {
     func updateNSView(_ host: CanvasSelectAllMonitorHostView, context: Context) {
         host.onSelectAll = { [viewModel] in
             viewModel.selectAllVisibleNodes()
+        }
+    }
+}
+
+// MARK: - Empty canvas placeholder
+
+private struct CanvasEmptyGetStartedPlaceholder: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ZStack(alignment: .topTrailing) {
+                Text("Get started")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .allowsHitTesting(false)
+
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Hide tips")
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                tipRow(icon: "hand.tap", text: "Double-click the canvas to create a task.")
+                tipRow(icon: "link", text: "Drag from a task’s + buttons to connect dependencies.")
+                tipRow(icon: "square.and.arrow.down", text: "⌘S saves tasks and finances into one JSON file.")
+                tipRow(icon: "command", text: "⌘O to open a file, ⌘F to search tasks.")
+            }
+            .allowsHitTesting(false)
+        }
+        .frame(maxWidth: 440, alignment: .leading)
+        .padding(28)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+        )
+    }
+
+    private func tipRow(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 22)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

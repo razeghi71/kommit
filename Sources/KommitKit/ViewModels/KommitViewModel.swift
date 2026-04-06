@@ -109,7 +109,7 @@ package final class KommitViewModel: ObservableObject {
         return formatter.internationalCurrencySymbol ?? effectiveFinancialCurrencyCode
     }
 
-    /// Set from the main SwiftUI window (`ContentView`). Used where `EnvironmentValues.openWindow` is unavailable.
+    /// Set from the app (`KommitApp` windows). Used where `EnvironmentValues.openWindow` is unavailable.
     var openSettingsWindowAction: (() -> Void)?
 
     func openSettingsWindow() {

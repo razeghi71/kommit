@@ -8,18 +8,41 @@ struct KommitApp: App {
     @StateObject private var viewModel = KommitViewModel()
     @AppStorage("showNodeRanks") private var showNodeRanks = true
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some Scene {
+        // Smaller welcome window is listed first so it is the default at launch (same pattern as IntelliJ).
+        Window("Welcome to Kommit", id: "hub") {
+            StartHubView(viewModel: viewModel)
+                .frame(minWidth: 620, idealWidth: 780, minHeight: 440, idealHeight: 560)
+                .background(HubWindowAccessor { window in
+                    appDelegate.hubWindow = window
+                    appDelegate.configureWindow(window)
+                })
+                .onAppear {
+                    appDelegate.viewModel = viewModel
+                    appDelegate.openHubWindowAction = { [openWindow] in openWindow(id: "hub") }
+                }
+                .onChange(of: viewModel.shouldShowStartHub) { _, showHub in
+                    guard !showHub else { return }
+                    appDelegate.suppressTerminateWhenHubCloses = true
+                    dismissWindow(id: "hub")
+                    openWindow(id: "main")
+                }
+        }
+        .defaultSize(width: 780, height: 560)
+
         Window("Kommit", id: "main") {
             ContentView(viewModel: viewModel)
                 .frame(minWidth: 800, idealWidth: 1200, minHeight: 600, idealHeight: 800)
+                .background(MainWindowAccessor { window in
+                    appDelegate.mainWindow = window
+                    appDelegate.configureWindow(window)
+                })
                 .onAppear {
                     appDelegate.viewModel = viewModel
                     appDelegate.openMainWindowAction = { [openWindow] in openWindow(id: "main") }
-                    if let window = NSApplication.shared.windows.first {
-                        appDelegate.mainWindow = window
-                        appDelegate.configureWindow(window)
-                    }
+                    appDelegate.openHubWindowAction = { [openWindow] in openWindow(id: "hub") }
                     appDelegate.syncMainWindowDocumentTitle(with: viewModel)
                 }
                 .onReceive(viewModel.objectWillChange) { _ in
@@ -49,7 +72,7 @@ struct KommitApp: App {
             }
             CommandGroup(replacing: .newItem) {
                 Button("New") {
-                    ensureWindowOpen()
+                    ensureWorkspaceWindowOpen()
                     viewModel.confirmDiscardIfNeeded {
                         viewModel.newBoard(suppressStartHub: true)
                     }
@@ -57,7 +80,7 @@ struct KommitApp: App {
                 .keyboardShortcut("n", modifiers: .command)
 
                 Button("Open...") {
-                    ensureWindowOpen()
+                    ensureWorkspaceWindowOpen()
                     viewModel.confirmDiscardIfNeeded {
                         viewModel.open()
                     }
@@ -149,10 +172,54 @@ struct KommitApp: App {
         .defaultSize(width: 620, height: 520)
     }
 
-    private func ensureWindowOpen() {
-        if NSApplication.shared.windows.filter({ $0.isVisible }).isEmpty {
+    private func ensureWorkspaceWindowOpen() {
+        let visible = NSApplication.shared.windows.filter(\.isVisible)
+        guard visible.isEmpty else { return }
+        if viewModel.shouldShowStartHub {
+            openWindow(id: "hub")
+        } else {
             openWindow(id: "main")
         }
+    }
+}
+
+/// Resolves the welcome window so hub close can quit the app (except during programmatic dismiss).
+private struct HubWindowAccessor: NSViewRepresentable {
+    let onAttach: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { attachIfNeeded(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { attachIfNeeded(nsView) }
+    }
+
+    private func attachIfNeeded(_ view: NSView) {
+        guard let window = view.window else { return }
+        onAttach(window)
+    }
+}
+
+/// Resolves the actual `NSWindow` that hosts the main canvas (not the welcome window).
+private struct MainWindowAccessor: NSViewRepresentable {
+    let onAttach: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { attachIfNeeded(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { attachIfNeeded(nsView) }
+    }
+
+    private func attachIfNeeded(_ view: NSView) {
+        guard let window = view.window else { return }
+        onAttach(window)
     }
 }
 
@@ -160,7 +227,12 @@ struct KommitApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unchecked Sendable {
     var viewModel: KommitViewModel?
     var mainWindow: NSWindow?
+    /// Welcome window; when the user closes it (red button or ⌘W), the app terminates.
+    var hubWindow: NSWindow?
+    /// Set while dismissing the hub to open the main window — must not trigger quit.
+    var suppressTerminateWhenHubCloses = false
     var openMainWindowAction: (() -> Void)?
+    var openHubWindowAction: (() -> Void)?
 
     /// `kVK_ANSI_KeypadPlus` — SwiftUI’s ⌘+ menu binding uses the `=` key only, not numpad `+`.
     private static let keypadPlusKeyCode: UInt16 = 0x45
@@ -184,6 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if sender === hubWindow {
+            return true
+        }
         guard sender === mainWindow else { return true }
         guard let viewModel else { return true }
         if viewModel.isDirty {
@@ -192,7 +267,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
             ) else { return false }
         }
         viewModel.resetToStartHub()
-        return false
+        openHubWindowAction?()
+        return true
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if window === mainWindow {
+            mainWindow = nil
+        }
+        if window === hubWindow {
+            hubWindow = nil
+            if suppressTerminateWhenHubCloses {
+                suppressTerminateWhenHubCloses = false
+            } else {
+                NSApplication.shared.terminate(nil)
+            }
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -205,7 +296,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if !hasVisibleWindows {
-            openMainWindowAction?()
+            if viewModel?.shouldShowStartHub == true {
+                openHubWindowAction?()
+            } else {
+                openMainWindowAction?()
+            }
         }
         return true
     }

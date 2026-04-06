@@ -68,28 +68,22 @@ package struct ContentView: View {
     }
 
     package var body: some View {
-        Group {
-            if viewModel.shouldShowStartHub {
-                StartHubView(viewModel: viewModel)
-            } else {
-                VStack(spacing: 0) {
-                    tabBar
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .zIndex(1)
+        VStack(spacing: 0) {
+            tabBar
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .zIndex(1)
 
-                    Group {
-                        switch topTab {
-                        case .tasks:
-                            tasksContent
-                        case .finances:
-                            FinancesView(viewModel: viewModel)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .zIndex(0)
+            Group {
+                switch topTab {
+                case .tasks:
+                    tasksContent
+                case .finances:
+                    FinancesView(viewModel: viewModel)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .zIndex(0)
         }
         .onAppear {
             viewModel.openSettingsWindowAction = { openWindow(id: "settings") }
