@@ -5,16 +5,14 @@ import SwiftUI
 struct TransactionsListView: View {
     @ObservedObject var viewModel: KommitViewModel
     @State private var showingAddTransaction = false
-    @State private var filterMonth: Int
-    @State private var filterYear: Int
+    @Binding var filterMonth: Int
+    @Binding var filterYear: Int
     @State private var editingTransaction: FinancialTransaction?
 
-    init(viewModel: KommitViewModel) {
+    init(viewModel: KommitViewModel, filterMonth: Binding<Int>, filterYear: Binding<Int>) {
         self.viewModel = viewModel
-        let now = Date()
-        let comps = Calendar.current.dateComponents([.year, .month], from: now)
-        _filterMonth = State(initialValue: comps.month ?? 1)
-        _filterYear = State(initialValue: comps.year ?? 2026)
+        _filterMonth = filterMonth
+        _filterYear = filterYear
     }
 
     var body: some View {

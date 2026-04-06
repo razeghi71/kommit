@@ -34,6 +34,21 @@ private enum FinancesTab: String, CaseIterable, Identifiable {
 package struct FinancesView: View {
     @ObservedObject var viewModel: KommitViewModel
     @State private var selectedTab: FinancesTab = .financialPlanning
+    @State private var transactionsFilterMonth: Int
+    @State private var transactionsFilterYear: Int
+    @State private var summaryFilterMonth: Int
+    @State private var summaryFilterYear: Int
+
+    package init(viewModel: KommitViewModel) {
+        self.viewModel = viewModel
+        let comps = Calendar.current.dateComponents([.year, .month], from: Date())
+        let currentMonth = comps.month ?? 1
+        let currentYear = comps.year ?? 2026
+        _transactionsFilterMonth = State(initialValue: currentMonth)
+        _transactionsFilterYear = State(initialValue: currentYear)
+        _summaryFilterMonth = State(initialValue: currentMonth)
+        _summaryFilterYear = State(initialValue: currentYear)
+    }
 
     package var body: some View {
         HStack(spacing: 0) {
@@ -83,9 +98,23 @@ package struct FinancesView: View {
     private var content: some View {
         ZStack {
             tabContent(FinancialPlanningListView(viewModel: viewModel), for: .financialPlanning)
-            tabContent(TransactionsListView(viewModel: viewModel), for: .transactions)
+            tabContent(
+                TransactionsListView(
+                    viewModel: viewModel,
+                    filterMonth: $transactionsFilterMonth,
+                    filterYear: $transactionsFilterYear
+                ),
+                for: .transactions
+            )
             tabContent(FinanceCalendarView(viewModel: viewModel), for: .calendar)
-            tabContent(FinanceSummaryView(viewModel: viewModel), for: .summary)
+            tabContent(
+                FinanceSummaryView(
+                    viewModel: viewModel,
+                    filterMonth: $summaryFilterMonth,
+                    filterYear: $summaryFilterYear
+                ),
+                for: .summary
+            )
         }
     }
 

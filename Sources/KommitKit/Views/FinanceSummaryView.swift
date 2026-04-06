@@ -4,14 +4,13 @@ import SwiftUI
 
 struct FinanceSummaryView: View {
     @ObservedObject var viewModel: KommitViewModel
-    @State private var filterMonth: Int
-    @State private var filterYear: Int
+    @Binding var filterMonth: Int
+    @Binding var filterYear: Int
 
-    init(viewModel: KommitViewModel) {
+    init(viewModel: KommitViewModel, filterMonth: Binding<Int>, filterYear: Binding<Int>) {
         self.viewModel = viewModel
-        let comps = Calendar.current.dateComponents([.year, .month], from: Date())
-        _filterMonth = State(initialValue: comps.month ?? 1)
-        _filterYear = State(initialValue: comps.year ?? 2026)
+        _filterMonth = filterMonth
+        _filterYear = filterYear
     }
 
     private var calendar: Calendar { .current }
