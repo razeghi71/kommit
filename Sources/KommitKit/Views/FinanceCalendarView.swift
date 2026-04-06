@@ -185,27 +185,15 @@ package struct FinanceCalendarView: View {
                     .buttonStyle(.plain)
                     .help("View and edit accounts")
                 }
-                if viewModel.financeAccounts.isEmpty {
-                    Button {
-                        financeAccountsPresentation = .addAccount
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 22))
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add account")
-                } else {
-                    Button {
-                        financeAccountsPresentation = .manage
-                    } label: {
-                        Image(systemName: "pencil.circle.fill")
-                            .font(.system(size: 22))
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Edit accounts")
+                Button {
+                    financeAccountsPresentation = .manage
+                } label: {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 22))
+                        .symbolRenderingMode(.hierarchical)
                 }
+                .buttonStyle(.borderless)
+                .help("Edit accounts")
             }
             Spacer()
             Button("Today", action: onScrollToToday)

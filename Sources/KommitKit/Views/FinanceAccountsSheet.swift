@@ -25,94 +25,117 @@ private enum FinanceAccountFormRoute: Identifiable, Hashable {
     }
 }
 
-private struct FinanceAccountListRowLabel: View {
+private struct FinanceAccountRowCard: View {
     let account: FinanceAccount
     @ObservedObject var viewModel: KommitViewModel
+    var onEdit: () -> Void
+    var onDelete: () -> Void
+
+    @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var creditSubtitle: String? {
+        guard account.isCreditAccount else { return nil }
+        if let limit = account.creditLimit {
+            return "Limit \(viewModel.formatFinancialCurrency(limit))"
+        }
+        return "No limit set"
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(account.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
-                Text(viewModel.formatFinancialCurrency(account.balance))
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                if account.isCreditAccount {
-                    if let limit = account.creditLimit {
-                        Text("Limit \(viewModel.formatFinancialCurrency(limit))")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        Text("No limit set")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
+        HStack(alignment: .center, spacing: 10) {
+            Button(action: onEdit) {
+                HStack(alignment: .center, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.primary.opacity(0.07))
+                        Image(systemName: account.isCreditAccount ? "creditcard.fill" : "building.columns.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary)
                     }
+                    .frame(width: 40, height: 40)
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(account.name.isEmpty ? "Untitled" : account.name)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            if account.isCreditAccount {
+                                Text("Credit")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Color.orange.opacity(0.95))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.16))
+                                    .clipShape(Capsule(style: .continuous))
+                            }
+                        }
+
+                        if let creditSubtitle {
+                            Text(creditSubtitle)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(viewModel.formatFinancialCurrency(account.balance))
+                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.primary)
                 }
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 8)
-            if account.isCreditAccount {
-                Text("Credit")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.orange.opacity(0.22))
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .buttonStyle(.plain)
+            .help("Edit account")
+
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30, height: 30)
             }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.tertiary)
+            .buttonStyle(FinanceAccountTrashButtonStyle(isRowHovered: isHovered))
+            .help("Delete account")
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(rowFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(rowBorder, lineWidth: 1)
+        }
+        .onHover { isHovered = $0 }
+    }
+
+    private var rowBorder: Color {
+        Color.primary.opacity(isHovered ? 0.14 : 0.08)
+    }
+
+    private var rowFill: Color {
+        if isHovered {
+            return Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.05)
+        }
+        return Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.03)
     }
 }
 
-private struct FinanceAccountRowButtonStyle: ButtonStyle {
-    var isHovered: Bool
-    @Environment(\.colorScheme) private var colorScheme
+private struct FinanceAccountTrashButtonStyle: ButtonStyle {
+    var isRowHovered: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(fill(pressed: configuration.isPressed))
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : (isRowHovered ? 0.07 : 0.04)))
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(border(pressed: configuration.isPressed), lineWidth: 1)
-            }
-    }
-
-    private func fill(pressed: Bool) -> Color {
-        if pressed {
-            return Color.primary.opacity(colorScheme == .dark ? 0.18 : 0.10)
-        }
-        if isHovered {
-            return Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.07)
-        }
-        return Color.primary.opacity(colorScheme == .dark ? 0.07 : 0.04)
-    }
-
-    private func border(pressed: Bool) -> Color {
-        Color.primary.opacity(pressed ? 0.28 : (isHovered ? 0.20 : 0.14))
-    }
-}
-
-private struct FinanceAccountRow: View {
-    let account: FinanceAccount
-    @ObservedObject var viewModel: KommitViewModel
-    var onEdit: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onEdit) {
-            FinanceAccountListRowLabel(account: account, viewModel: viewModel)
-        }
-        .buttonStyle(FinanceAccountRowButtonStyle(isHovered: isHovered))
-        .onHover { isHovered = $0 }
     }
 }
 
@@ -134,8 +157,15 @@ package struct FinanceAccountsSheet: View {
         VStack(spacing: 0) {
             HStack(alignment: .center) {
                 Text("Accounts")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                 Spacer()
+                Button {
+                    formRoute = .add
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(KommitIconButtonStyle())
+                .help("Add account")
                 Button("Done") { dismiss() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -146,58 +176,27 @@ package struct FinanceAccountsSheet: View {
 
             Divider()
 
-            Text("Tap a row to edit. ⌫ deletes a selected row.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if viewModel.financeAccounts.isEmpty {
+                        financeAccountsEmptyState
+                    } else {
+                        ForEach(viewModel.financeAccounts) { account in
+                            FinanceAccountRowCard(account: account, viewModel: viewModel) {
+                                formRoute = .edit(account.id)
+                            } onDelete: {
+                                viewModel.removeFinanceAccount(id: account.id)
+                            }
+                        }
+                    }
+                }
                 .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-
-            List {
-                if viewModel.financeAccounts.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No accounts yet")
-                            .font(.system(size: 15, weight: .semibold))
-                        Text("Add accounts to set your starting balance.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 8)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-                ForEach(viewModel.financeAccounts) { account in
-                    FinanceAccountRow(account: account, viewModel: viewModel) {
-                        formRoute = .edit(account.id)
-                    }
-                    .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-                .onDelete(perform: deleteAccounts)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
             }
-            .listStyle(.plain)
             .scrollContentBackground(.hidden)
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button {
-                    formRoute = .add
-                } label: {
-                    Label("Add account", systemImage: "plus.circle.fill")
-                }
-                .buttonStyle(.bordered)
-                .help("Add a new account")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
-        .frame(minWidth: 340, minHeight: 320)
+        .frame(minWidth: 380, minHeight: 360)
         .onAppear {
             guard !appliedLaunch else { return }
             appliedLaunch = true
@@ -212,9 +211,31 @@ package struct FinanceAccountsSheet: View {
         }
     }
 
-    private func deleteAccounts(at offsets: IndexSet) {
-        viewModel.removeFinanceAccounts(at: offsets)
+    private var financeAccountsEmptyState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "building.columns.fill")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .symbolRenderingMode(.hierarchical)
+            VStack(spacing: 6) {
+                Text("No accounts yet")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Add at least one account so your calendar balance matches what you hold.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 280)
+            }
+            Button("Add account") {
+                formRoute = .add
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 36)
     }
+
 }
 
 private struct FinanceAccountEditorSheet: View {
