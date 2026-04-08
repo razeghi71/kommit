@@ -148,8 +148,7 @@ package final class KommitViewModel: ObservableObject {
     package func undo() {
         guard let snapshot = undoStack.popLast() else { return }
         redoStack.append(nodes)
-        nodes = snapshot
-        clearMeasuredNodeSizeCache()
+        replaceNodesPreservingMeasuredSizes(snapshot)
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -158,8 +157,7 @@ package final class KommitViewModel: ObservableObject {
     package func redo() {
         guard let snapshot = redoStack.popLast() else { return }
         undoStack.append(nodes)
-        nodes = snapshot
-        clearMeasuredNodeSizeCache()
+        replaceNodesPreservingMeasuredSizes(snapshot)
         editingNodeID = nil
         selectedNodeID = nil
         selectedNodeIDs.removeAll()
@@ -384,6 +382,26 @@ package final class KommitViewModel: ObservableObject {
     func clearMeasuredNodeSizeCache() {
         guard !measuredNodeSizes.isEmpty else { return }
         measuredNodeSizes.removeAll()
+    }
+
+    /// Undo/redo swaps persisted nodes, but measured sizes are transient view state.
+    /// Keep cached measurements for nodes whose rendered content is unchanged so unrelated
+    /// nodes do not jump when a history step clears and rebuilds the board state.
+    private func replaceNodesPreservingMeasuredSizes(_ snapshot: [UUID: KommitNode]) {
+        let previousNodes = nodes
+        let previousMeasuredNodeSizes = measuredNodeSizes
+        nodes = snapshot
+        measuredNodeSizes = previousMeasuredNodeSizes.filter { id, _ in
+            guard let previous = previousNodes[id], let current = snapshot[id] else {
+                return false
+            }
+            return !nodeVisibleSizeMayHaveChanged(from: previous, to: current)
+        }
+    }
+
+    private func nodeVisibleSizeMayHaveChanged(from previous: KommitNode, to current: KommitNode) -> Bool {
+        previous.text != current.text
+            || previous.plannedDate != current.plannedDate
     }
 
     func setNodeStatus(_ id: UUID, statusID: UUID?) {
