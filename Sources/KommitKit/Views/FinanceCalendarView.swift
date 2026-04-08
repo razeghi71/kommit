@@ -6,6 +6,7 @@ package struct FinanceCalendarView: View {
     @State private var customRecordPayload: FinanceCalendarCustomRecordPayload?
     @State private var forecastQuickLogPayload: FinanceCalendarForecastQuickLogPayload?
     @State private var editingCalendarTransaction: FinancialTransaction?
+    @State private var editingCalendarCommitment: Commitment?
     @State private var financeAccountsPresentation: FinanceAccountsSheetLaunch?
     @State private var didInitialScrollToToday = false
     @State private var pendingScrollTarget: Date?
@@ -73,6 +74,12 @@ package struct FinanceCalendarView: View {
                 transaction: txn,
                 defaultMonth: Calendar.current.component(.month, from: txn.date),
                 defaultYear: Calendar.current.component(.year, from: txn.date)
+            )
+        }
+        .sheet(item: $editingCalendarCommitment) { commitment in
+            CommitmentEditorView(
+                viewModel: viewModel,
+                commitment: commitment
             )
         }
         .sheet(item: $financeAccountsPresentation) { launch in
@@ -152,20 +159,6 @@ package struct FinanceCalendarView: View {
     private static func commitmentOccurrenceKey(commitmentID: UUID, dueDate: Date, calendar cal: Calendar) -> String {
         let day = cal.startOfDay(for: dueDate)
         return "\(commitmentID.uuidString)|\(day.timeIntervalSinceReferenceDate)"
-    }
-
-    private func financialTransactionForPaidCommitmentLine(_ line: FinanceCalendarDueLine) -> FinancialTransaction? {
-        guard line.isPaid else { return nil }
-        let cal = calendar
-        let target = Self.commitmentOccurrenceKey(
-            commitmentID: line.commitment.id,
-            dueDate: line.occurrenceDueDate,
-            calendar: cal
-        )
-        return viewModel.financialTransactions.values.first { txn in
-            guard txn.isSettlement, let settles = txn.settles else { return false }
-            return Self.commitmentOccurrenceKey(commitmentID: settles.commitmentID, dueDate: settles.dueDate, calendar: cal) == target
-        }
     }
 
     private func header(onScrollToToday: @escaping () -> Void) -> some View {
@@ -534,16 +527,12 @@ package struct FinanceCalendarView: View {
                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
         }
 
-        if line.isPaid, let txn = financialTransactionForPaidCommitmentLine(line) {
-            Button {
-                editingCalendarTransaction = txn
-            } label: {
-                card
-            }
-            .buttonStyle(.plain)
-        } else {
+        Button {
+            editingCalendarCommitment = commitment
+        } label: {
             card
         }
+        .buttonStyle(.plain)
     }
 
     private func forecastEventBlock(_ line: FinanceCalendarForecastLine, displayDayStart: Date, isPastDay: Bool, isToday: Bool) -> some View {
@@ -896,4 +885,3 @@ private struct FinanceCalendarCustomRecordSheet: View {
         }
     }
 }
-
