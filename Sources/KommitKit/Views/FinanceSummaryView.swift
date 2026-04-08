@@ -265,7 +265,7 @@ struct FinanceSummaryView: View {
                         .padding(.horizontal, 8)
 
                     Spacer()
-                    Text(viewModel.formatFinancialCurrencyUnsigned(amount))
+                    Text(summaryIntegerCurrency(amount))
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Self.expenseRed)
                     Image(systemName: "chevron.right")
@@ -446,7 +446,7 @@ struct FinanceSummaryView: View {
             }
             .frame(height: 10)
 
-            Text(viewModel.formatFinancialCurrencyUnsigned(amount))
+            Text(summaryIntegerCurrency(amount))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(.primary)
                 .frame(width: 90, alignment: .trailing)
@@ -466,6 +466,10 @@ struct FinanceSummaryView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
+    }
+
+    private func summaryIntegerCurrency(_ amount: Double) -> String {
+        viewModel.formatFinancialCurrencyUnsigned(amount.rounded())
     }
 
     private func openTagDrilldown(tag: String) {
