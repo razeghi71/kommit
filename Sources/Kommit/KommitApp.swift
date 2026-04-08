@@ -49,11 +49,19 @@ struct KommitApp: App {
                     window.identifier = KommitWindowRole.main
                     appDelegate.mainWindow = window
                     appDelegate.configureWindow(window)
+                    appDelegate.syncMainWindowPresentation()
                 })
                 .onAppear {
                     appDelegate.viewModel = viewModel
                     appDelegate.openMainWindowAction = { [openWindow] in openWindow(id: "main") }
                     appDelegate.openHubWindowAction = { [openWindow] in openWindow(id: "hub") }
+                    appDelegate.syncMainWindowPresentation()
+                }
+                .onChange(of: viewModel.documentWindowTitle) { _, _ in
+                    appDelegate.syncMainWindowPresentation()
+                }
+                .onChange(of: viewModel.isDirty) { _, _ in
+                    appDelegate.syncMainWindowPresentation()
                 }
         }
         .defaultSize(width: 1200, height: 800)
@@ -271,6 +279,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, @unc
         window.toolbarStyle = .unifiedCompact
         window.isMovableByWindowBackground = false
         window.backgroundColor = AppColors.canvasBackground
+    }
+
+    func syncMainWindowPresentation() {
+        guard let viewModel, let window = resolvedMainWorkspaceWindow() else { return }
+        window.title = viewModel.documentWindowTitle
+        window.isDocumentEdited = viewModel.isDirty
     }
 
     private func isHubWindow(_ window: NSWindow) -> Bool {
