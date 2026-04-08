@@ -111,19 +111,23 @@ struct TransactionEditorView: View {
     }
 
     private var showsDeferredCommitmentSection: Bool {
-        planningMode == .forecast && type == .expense && recordedPaymentMode == .deferredToCommitment
+        planningMode != .closesCommitment && type == .expense && recordedPaymentMode == .deferredToCommitment
+    }
+
+    private var showsRecordedPaymentMode: Bool {
+        planningMode != .closesCommitment && type == .expense
     }
 
     private var planningIsValid: Bool {
+        if showsDeferredCommitmentSection && deferredCommitmentID == nil {
+            return false
+        }
+
         switch planningMode {
         case .none:
             return true
         case .forecast:
-            guard selectedForecastID != nil else { return false }
-            if showsDeferredCommitmentSection {
-                return deferredCommitmentID != nil
-            }
-            return true
+            return selectedForecastID != nil
         case .closesCommitment:
             return settlementCommitmentID != nil
         }
@@ -184,7 +188,7 @@ struct TransactionEditorView: View {
             tags: tags,
             note: note.trimmingCharacters(in: .whitespaces).nilIfEmpty,
             forecastID: planningMode == .forecast ? selectedForecastID : nil,
-            deferredTo: planningMode == .forecast ? currentDeferredRef : nil,
+            deferredTo: currentDeferredRef,
             settles: planningMode == .closesCommitment ? currentSettlementRef : nil
         )
     }
@@ -309,54 +313,61 @@ struct TransactionEditorView: View {
 
             switch planningMode {
             case .none:
-                amountField
+                recordedTransactionPaymentFields
             case .forecast:
-                if type == .expense {
-                    KommitRadioGroup(
-                        selection: $recordedPaymentMode,
-                        options: Array(RecordedTransactionPaymentMode.allCases),
-                        titleFor: { $0.title }
-                    )
-                    .onChange(of: recordedPaymentMode) { _, newMode in
-                        switch newMode {
-                        case .payNow:
-                            deferredCommitmentID = nil
-                            deferredDueDate = date
-                        case .deferredToCommitment:
-                            if deferredCommitmentID == nil {
-                                deferredDueDate = date
-                            }
-                        }
-                    }
-                }
-
-                if type == .income || recordedPaymentMode == .payNow {
-                    amountField
-                } else if showsDeferredCommitmentSection {
-                    Text("For forecast tracking in the Summary tab, this will still count on the recorded date.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(red: 0.72, green: 0.48, blue: 0.02))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    commitmentPicker(
-                        title: "Commitment",
-                        selection: $deferredCommitmentID,
-                        onChange: { _, id in applyCommitmentSelection(id, role: .deferred) },
-                        items: deferEligibleCommitments,
-                        onNew: {
-                            commitmentSheetRole = .deferred
-                            showingCommitmentSheet = true
-                        }
-                    )
-
-                    if deferredCommitmentID != nil {
-                        Text("Transaction amount will be taken from the deferred commitment.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                recordedTransactionPaymentFields
             case .closesCommitment:
                 amountField
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recordedTransactionPaymentFields: some View {
+        if showsRecordedPaymentMode {
+            KommitRadioGroup(
+                selection: $recordedPaymentMode,
+                options: Array(RecordedTransactionPaymentMode.allCases),
+                titleFor: { $0.title }
+            )
+            .onChange(of: recordedPaymentMode) { _, newMode in
+                switch newMode {
+                case .payNow:
+                    deferredCommitmentID = nil
+                    deferredDueDate = date
+                case .deferredToCommitment:
+                    if deferredCommitmentID == nil {
+                        deferredDueDate = date
+                    }
+                }
+            }
+        }
+
+        if type == .income || recordedPaymentMode == .payNow {
+            amountField
+        } else if showsDeferredCommitmentSection {
+            if planningMode == .forecast {
+                Text("For forecast tracking in the Summary tab, this will still count on the recorded date.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(red: 0.72, green: 0.48, blue: 0.02))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            commitmentPicker(
+                title: "Commitment",
+                selection: $deferredCommitmentID,
+                onChange: { _, id in applyCommitmentSelection(id, role: .deferred) },
+                items: deferEligibleCommitments,
+                onNew: {
+                    commitmentSheetRole = .deferred
+                    showingCommitmentSheet = true
+                }
+            )
+
+            if deferredCommitmentID != nil {
+                Text("Transaction amount will be taken from the deferred commitment.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -404,9 +415,12 @@ struct TransactionEditorView: View {
             .onChange(of: selection.wrappedValue, onChange)
         } trailing: {
             if let onNew {
-                Button("New…", action: onNew)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                Button(action: onNew) {
+                    Image(systemName: "plus")
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(KommitIconButtonStyle())
+                .help("Add commitment")
             }
         }
     }
@@ -508,7 +522,7 @@ struct TransactionEditorView: View {
 
         switch role {
         case .deferred:
-            deferredDueDate = commitment.createdAt
+            deferredDueDate = commitment.isRecurring ? nearestInstance(for: commitment) : commitment.createdAt
         case .settlement:
             let due = commitment.isRecurring ? nearestInstance(for: commitment) : commitment.createdAt
             settlementDueDate = due
@@ -516,9 +530,9 @@ struct TransactionEditorView: View {
                 name = commitment.name
                 type = commitment.type
                 tags = commitment.tags
-            amount = FinancialCurrencyFormatting.editorAmountString(
-                viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due)
-            )
+                amount = FinancialCurrencyFormatting.editorAmountString(
+                    viewModel.expectedCommitmentAmount(for: commitment.id, dueDate: due)
+                )
             }
         }
     }
@@ -635,7 +649,7 @@ struct TransactionEditorView: View {
             id: transaction?.id ?? UUID(),
             kind: savedKind,
             forecastID: planningMode == .forecast ? selectedForecastID : nil,
-            deferredTo: planningMode == .forecast ? currentDeferredRef : nil,
+            deferredTo: currentDeferredRef,
             settles: planningMode == .closesCommitment ? currentSettlementRef : nil,
             name: name.trimmingCharacters(in: .whitespaces),
             amount: storedAmountValue,
@@ -678,7 +692,7 @@ struct TransactionEditorView: View {
         if transaction.kind == .settlement || transaction.settles != nil {
             return .closesCommitment
         }
-        if transaction.forecastID != nil || transaction.deferredTo != nil {
+        if transaction.forecastID != nil {
             return .forecast
         }
         return .none

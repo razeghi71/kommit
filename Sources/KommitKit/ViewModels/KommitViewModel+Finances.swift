@@ -251,6 +251,19 @@ extension KommitViewModel {
         }
     }
 
+    /// Whether this settlement is just paying off an earlier recorded deferred transaction.
+    package func settlementRepresentsDeferredPayment(
+        _ transaction: FinancialTransaction,
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard transaction.isSettlement, let settles = transaction.settles else { return false }
+        return financialTransactions.values.contains { candidate in
+            guard candidate.isRecorded, let deferredTo = candidate.deferredTo else { return false }
+            return deferredTo.commitmentID == settles.commitmentID
+                && calendar.isDate(deferredTo.dueDate, inSameDayAs: settles.dueDate)
+        }
+    }
+
     package func monthlySummary(month: Int, year: Int, calendar: Calendar = .current) -> (income: Double, expenses: Double, net: Double) {
         let transactions = cashTransactionsForMonth(month: month, year: year, calendar: calendar)
         let income = transactions.filter { $0.type == .income }.reduce(0) { $0 + resolvedTransactionAmount($1) }

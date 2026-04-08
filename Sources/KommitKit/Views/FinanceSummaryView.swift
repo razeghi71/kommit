@@ -101,20 +101,32 @@ struct FinanceSummaryView: View {
 
     // MARK: - Data helpers
 
-    private var cashMonthTransactions: [FinancialTransaction] {
-        viewModel.cashTransactionsForMonth(month: filterMonth, year: filterYear)
+    private var summaryMonthTransactions: [FinancialTransaction] {
+        viewModel.transactionsForMonth(month: filterMonth, year: filterYear).filter { txn in
+            if txn.isRecorded {
+                return true
+            }
+            if txn.isSettlement {
+                return !viewModel.settlementRepresentsDeferredPayment(txn, calendar: calendar)
+            }
+            return false
+        }
     }
 
     private var recordedMonthTransactions: [FinancialTransaction] {
         viewModel.recordedTransactionsForMonth(month: filterMonth, year: filterYear)
     }
 
+    private var summaryExpenseMonthTransactions: [FinancialTransaction] {
+        summaryMonthTransactions.filter { $0.type == .expense }
+    }
+
     private var totalIncome: Double {
-        cashMonthTransactions.filter { $0.type == .income }.reduce(0) { $0 + viewModel.resolvedTransactionAmount($1) }
+        summaryMonthTransactions.filter { $0.type == .income }.reduce(0) { $0 + viewModel.resolvedTransactionAmount($1) }
     }
 
     private var totalExpenses: Double {
-        cashMonthTransactions.filter { $0.type == .expense }.reduce(0) { $0 + viewModel.resolvedTransactionAmount($1) }
+        summaryExpenseMonthTransactions.reduce(0) { $0 + viewModel.resolvedTransactionAmount($1) }
     }
 
     // MARK: - 1) Income / Expense Overview
@@ -186,7 +198,7 @@ struct FinanceSummaryView: View {
 
     private var tagSpending: [(tag: String, amount: Double)] {
         var totals: [String: Double] = [:]
-        for txn in cashMonthTransactions where txn.type == .expense {
+        for txn in summaryExpenseMonthTransactions {
             let amount = viewModel.resolvedTransactionAmount(txn)
             if txn.tags.isEmpty {
                 totals["Untagged", default: 0] += amount
@@ -457,14 +469,12 @@ struct FinanceSummaryView: View {
     }
 
     private func openTagDrilldown(tag: String) {
-        let transactions = cashMonthTransactions
-            .filter { txn in
-                guard txn.type == .expense else { return false }
-                if tag == "Untagged" {
-                    return txn.tags.isEmpty
-                }
-                return txn.tags.contains(tag)
+        let transactions = summaryExpenseMonthTransactions.filter { txn in
+            if tag == "Untagged" {
+                return txn.tags.isEmpty
             }
+            return txn.tags.contains(tag)
+        }
         let title = tag == "Untagged" ? "Transactions · Untagged" : "Transactions · #\(tag)"
         drilldown = TransactionDrilldown(
             title: title,
