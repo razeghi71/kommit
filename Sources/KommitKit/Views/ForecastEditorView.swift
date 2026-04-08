@@ -40,9 +40,10 @@ struct ForecastEditorView: View {
         .interactiveDismissDisabled(hasUnsavedDraft)
         .onAppear { loadForecastForEditor() }
         .onChange(of: selectedPreset) { old, new in
-            if new == .custom {
+            if new != .custom {
+                previousPreset = new
+            } else if old != .custom {
                 previousPreset = old
-                showCustomRecurrence = true
             }
         }
         .sheet(isPresented: $showCustomRecurrence, onDismiss: {
@@ -159,15 +160,8 @@ struct ForecastEditorView: View {
 
                 recurrencePicker
 
-                if selectedPreset == .custom, let rec = customRecurrence {
-                    HStack(spacing: 4) {
-                        Image(systemName: "repeat")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text(rec.description)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
+                if selectedPreset == .custom {
+                    customRecurrenceEditorRow
                 }
             }
 
@@ -177,6 +171,35 @@ struct ForecastEditorView: View {
                     input: $tagInput,
                     suggestions: tagSuggestions
                 )
+            }
+        }
+    }
+
+    private var customRecurrenceEditorRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                showCustomRecurrence = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "repeat")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(customRecurrence == nil ? "Set custom schedule" : "Edit custom schedule")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            if let rec = customRecurrence {
+                Text(rec.description)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         }
     }
